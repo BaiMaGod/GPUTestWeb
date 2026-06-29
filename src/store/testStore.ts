@@ -172,7 +172,7 @@ function getGPUMemory(gpuName: string, rawRenderer: string): string {
     'rtx 5080': { memory: '16GB GDDR7', driverHint: '570.x+' },
     'rtx 5070 ti': { memory: '16GB GDDR7', driverHint: '570.x+' },
     'rtx 5070': { memory: '12GB GDDR7', driverHint: '570.x+' },
-    'rtx 5060 ti': { memory: '8GB GDDR7', driverHint: '570.x+' },
+    'rtx 5060 ti': { memory: '16GB GDDR7', driverHint: '570.x+' },
     'rtx 5060': { memory: '8GB GDDR7', driverHint: '570.x+' },
     'rtx 4090': { memory: '24GB GDDR6X', driverHint: '550.x+' },
     'rtx 4080 super': { memory: '16GB GDDR6X', driverHint: '550.x+' },
@@ -255,12 +255,28 @@ function getGPUDriver(gpuName: string, rawRenderer: string, rawVendor: string): 
   const rawLower = rawRenderer.toLowerCase();
   const vendorLower = rawVendor.toLowerCase();
 
-  // 从原始字符串中查找驱动版本号
-  const driverMatch = rawLower.match(/driver\s*version\s*[:\s]*([\d.]+)/i)
-    || rawLower.match(/([\d]{3,}\.[\d.]+)/);
+  // 从原始字符串中查找驱动版本号 - 尝试多种模式
+  const patterns = [
+    /driver\s*version\s*[:\s]*([\d.]+)/i,
+    /version\s*[:\s]*([\d]+\.[\d]+\.[\d]+\.[\d]+)/i,
+    /([\d]+\.[\d]+\.[\d]+\.[\d]+)/,
+    /(\d{2,}\.\d+\.\d+)/,
+  ];
 
-  if (driverMatch && driverMatch[1]) {
-    return driverMatch[1];
+  for (const pattern of patterns) {
+    const match = rawLower.match(pattern) || vendorLower.match(pattern);
+    if (match && match[1]) {
+      const version = match[1];
+      if (version.length >= 5) {
+        return version;
+      }
+    }
+  }
+
+  // 如果仍然匹配不到，尝试从 vendor 中查找数字序列
+  const numMatch = vendorLower.match(/(\d{2,}[\d.]*)/);
+  if (numMatch && numMatch[1].length >= 5) {
+    return numMatch[1];
   }
 
   // 根据 GPU 代际估算
