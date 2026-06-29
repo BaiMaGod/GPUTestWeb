@@ -1,7 +1,7 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Play, Loader2, Cpu, Gauge } from 'lucide-react';
-import { Canvas3D } from './Canvas3D';
+import { SafeCanvas3D } from './SafeCanvas3D';
 import { useTestStore, type PerformanceRating } from '@/store/testStore';
 
 export function HeroSection() {
@@ -9,7 +9,6 @@ export function HeroSection() {
     status,
     currentFPS,
     gpuUsage,
-    fpsHistory,
     remainingTime,
     setStatus,
     setCurrentFPS,
@@ -17,11 +16,12 @@ export function HeroSection() {
     addFPSRecord,
     setRemainingTime,
     setTestResult,
+    rating,
   } = useTestStore();
 
   const animationRef = useRef<number | null>(null);
-  const testStartTimeRef = useRef<number>(0);
-  const lastFrameTimeRef = useRef<number>(0);
+  const fpsHistoryRef = useRef<number[]>([]);
+  const hasStartedRef = useRef(false);
 
   const getFPSColor = (fps: number) => {
     if (fps >= 55) return 'text-perf-green';
@@ -29,8 +29,8 @@ export function HeroSection() {
     return 'text-perf-red';
   };
 
-  const getRatingInfo = (rating: PerformanceRating) => {
-    switch (rating) {
+  const getRatingInfo = (r: PerformanceRating) => {
+    switch (r) {
       case 'flagship':
         return { text: '旗舰级', color: 'text-perf-green', bg: 'bg-perf-green/20', border: 'border-perf-green' };
       case 'mainstream':
@@ -42,12 +42,19 @@ export function HeroSection() {
     }
   };
 
-  const runBenchmark = useCallback(() => {
+  useEffect(() => {
+    if (status !== 'running') {
+      hasStartedRef.current = false;
+      return;
+    }
+
+    if (hasStartedRef.current) return;
+    hasStartedRef.current = true;
+
+    fpsHistoryRef.current = [];
+
     const totalDuration = 15000;
-    const frameInterval = 1000 / 60;
     const startTime = Date.now();
-    testStartTimeRef.current = startTime;
-    lastFrameTimeRef.current = startTime;
 
     const subTests = [
       { name: '粒子系统', baseFPS: 120, duration: 3000 },
@@ -58,6 +65,51 @@ export function HeroSection() {
 
     let currentSubTestIndex = 0;
     let subTestStartTime = startTime;
+
+    const finishBenchmark = () => {
+      const history = fpsHistoryRef.current;
+      const avgFPS = history.length > 0
+        ? history.reduce((a, b) => a + b, 0) / history.length
+        : 60;
+
+      let r: PerformanceRating;
+      let overallScore: number;
+
+      if (avgFPS >= 100) {
+        r = 'flagship';
+        overallScore = Math.round(15000 + (avgFPS - 100) * 50);
+      } else if (avgFPS >= 60) {
+        r = 'mainstream';
+        overallScore = Math.round(10000 + (avgFPS - 60) * 125);
+      } else {
+        r = 'entry';
+        overallScore = Math.round(5000 + avgFPS * 83);
+      }
+
+      const chunkSize = Math.floor(history.length / subTests.length);
+      const subTestResults = subTests.map((test, index) => {
+        const chunk = history.slice(index * chunkSize, (index + 1) * chunkSize);
+        const avg = chunk.length > 0
+          ? Math.round(chunk.reduce((a, b) => a + b, 0) / chunk.length)
+          : test.baseFPS;
+        return {
+          name: test.name,
+          fps: avg,
+          score: Math.round(avg * 100),
+        };
+      });
+
+      setTestResult({
+        overallScore,
+        rating: r,
+        subTests: subTestResults,
+        gpuInfo: {
+          name: 'NVIDIA GeForce RTX 4090',
+          memory: '24GB GDDR6X',
+          driver: '550.76',
+        },
+      });
+    };
 
     const simulateFrame = () => {
       const currentTime = Date.now();
@@ -81,6 +133,7 @@ export function HeroSection() {
       setCurrentFPS(Math.round(fps));
       setGpuUsage(Math.round(usage));
       addFPSRecord(Math.round(fps));
+      fpsHistoryRef.current.push(Math.round(fps));
 
       const remaining = Math.max(0, totalDuration - elapsed);
       setRemainingTime(Math.ceil(remaining / 1000));
@@ -92,48 +145,14 @@ export function HeroSection() {
       }
     };
 
-    const finishBenchmark = () => {
-      const avgFPS = fpsHistory.length > 0
-        ? fpsHistory.reduce((a, b) => a + b, 0) / fpsHistory.length
-        : 60;
-
-      let rating: PerformanceRating;
-      let overallScore: number;
-
-      if (avgFPS >= 100) {
-        rating = 'flagship';
-        overallScore = Math.round(15000 + (avgFPS - 100) * 50);
-      } else if (avgFPS >= 60) {
-        rating = 'mainstream';
-        overallScore = Math.round(10000 + (avgFPS - 60) * 125);
-      } else {
-        rating = 'entry';
-        overallScore = Math.round(5000 + avgFPS * 83);
-      }
-
-      const subTestResults = subTests.map((test, index) => ({
-        name: test.name,
-        fps: fpsHistory.slice(index * 30, (index + 1) * 30).length > 0
-          ? Math.round(fpsHistory.slice(index * 30, (index + 1) * 30).reduce((a, b) => a + b, 0) /
-            fpsHistory.slice(index * 30, (index + 1) * 30).length)
-          : test.baseFPS,
-        score: Math.round(test.baseFPS * 100),
-      }));
-
-      setTestResult({
-        overallScore,
-        rating,
-        subTests: subTestResults,
-        gpuInfo: {
-          name: 'NVIDIA GeForce RTX 4090',
-          memory: '24GB GDDR6X',
-          driver: '550.76',
-        },
-      });
-    };
-
     animationRef.current = requestAnimationFrame(simulateFrame);
-  }, [fpsHistory, setCurrentFPS, setGpuUsage, addFPSRecord, setRemainingTime, setTestResult]);
+
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+    };
+  }, [status, setCurrentFPS, setGpuUsage, addFPSRecord, setRemainingTime, setTestResult]);
 
   const handleStartTest = () => {
     if (status === 'idle' || status === 'completed') {
@@ -141,25 +160,11 @@ export function HeroSection() {
     }
   };
 
-  useEffect(() => {
-    if (status === 'running') {
-      runBenchmark();
-    } else if (status === 'completed' && animationRef.current) {
-      cancelAnimationFrame(animationRef.current);
-    }
-
-    return () => {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-      }
-    };
-  }, [status, runBenchmark]);
-
-  const ratingInfo = getRatingInfo(useTestStore.getState().rating);
+  const ratingInfo = getRatingInfo(rating);
 
   return (
     <section className="relative min-h-screen flex flex-col items-center justify-center overflow-hidden">
-      <Canvas3D />
+      <SafeCanvas3D />
 
       <div className="relative z-10 container mx-auto px-6 py-32 flex flex-col items-center">
         <motion.div
@@ -187,7 +192,7 @@ export function HeroSection() {
               <div className={`text-7xl font-mono font-bold ${getFPSColor(currentFPS)} transition-colors duration-300`}>
                 {currentFPS}
               </div>
-              <div className="text-sm text-text-secondary mt-2 flex items-center gap-1">
+              <div className="text-sm text-text-secondary mt-2 flex items-center justify-center gap-1">
                 <Gauge className="w-4 h-4" />
                 FPS
               </div>
