@@ -123,7 +123,11 @@ export function MonitorPanel() {
             <div className="space-y-4">
               <div className="flex items-center justify-between p-4 bg-deep-black/50 rounded-xl">
                 <span className="text-text-secondary">显卡型号</span>
-                <span className="font-mono font-semibold">{gpuInfo.name}</span>
+                <span className="font-mono font-semibold text-tech-blue">{gpuInfo.name}</span>
+              </div>
+              <div className="flex items-center justify-between p-4 bg-deep-black/50 rounded-xl">
+                <span className="text-text-secondary">供应商</span>
+                <span className="font-mono font-semibold">{gpuInfo.vendor}</span>
               </div>
               <div className="flex items-center justify-between p-4 bg-deep-black/50 rounded-xl">
                 <span className="text-text-secondary flex items-center gap-2">

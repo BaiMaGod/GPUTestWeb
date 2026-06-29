@@ -65,7 +65,7 @@ export function Navbar() {
         <div className="flex items-center gap-3">
           <div className="text-right">
             <div className="text-sm font-medium text-text-primary">{gpuInfo.name}</div>
-            <div className="text-xs text-text-secondary">{gpuInfo.memory}</div>
+            <div className="text-xs text-text-secondary">{gpuInfo.memory !== 'Unknown' ? gpuInfo.memory : gpuInfo.vendor}</div>
           </div>
           <div className={`w-3 h-3 rounded-full ${getRatingColor()} ${rating ? 'animate-pulse' : ''}`} />
         </div>

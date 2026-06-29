@@ -99,15 +99,12 @@ export function HeroSection() {
         };
       });
 
+      const gpuInfo = useTestStore.getState().gpuInfo;
       setTestResult({
         overallScore,
         rating: r,
         subTests: subTestResults,
-        gpuInfo: {
-          name: 'NVIDIA GeForce RTX 4090',
-          memory: '24GB GDDR6X',
-          driver: '550.76',
-        },
+        gpuInfo,
       });
     };
 
