@@ -255,31 +255,32 @@ function getGPUDriver(gpuName: string, rawRenderer: string, rawVendor: string): 
   const rawLower = rawRenderer.toLowerCase();
   const vendorLower = rawVendor.toLowerCase();
 
+  // 合并所有可能包含版本号的字符串
+  const combined = `${rawRenderer} ${rawVendor}`;
+
   // 从原始字符串中查找驱动版本号 - 尝试多种模式
+  // 匹配: 32.0.15.7688, 550.76, 23.5.2, 31.0.101.4xxx 等
   const patterns = [
-    /driver\s*version\s*[:\s]*([\d.]+)/i,
-    /version\s*[:\s]*([\d]+\.[\d]+\.[\d]+\.[\d]+)/i,
-    /([\d]+\.[\d]+\.[\d]+\.[\d]+)/,
-    /(\d{2,}\.\d+\.\d+)/,
+    /(\d{2,}\.\d+\.\d+\.\d+)/,           // 4段数字: 32.0.15.7688
+    /(\d{3,}\.\d+\.\d+)/,                 // 3段数字(3位开头): 550.76
+    /(\d{2}\.\d+\.\d+\.\d{4,})/,          // 特殊格式: 31.0.101.4xxx
+    /(\d+\.\d+\.\d+\.\d+)/,               // 任意4段数字
+    /driver\s*version\s*[:\s]*([\d.]+)/i, // driver version: xxx
+    /version\s*[:\s]*([\d]+\.[\d]+\.[\d]+)/i, // version: xxx.xxx.xxx
   ];
 
   for (const pattern of patterns) {
-    const match = rawLower.match(pattern) || vendorLower.match(pattern);
+    const match = combined.match(pattern);
     if (match && match[1]) {
       const version = match[1];
-      if (version.length >= 5) {
+      // 过滤掉明显不是驱动版本号的数字
+      if (version.length >= 5 && !version.startsWith('0.')) {
         return version;
       }
     }
   }
 
-  // 如果仍然匹配不到，尝试从 vendor 中查找数字序列
-  const numMatch = vendorLower.match(/(\d{2,}[\d.]*)/);
-  if (numMatch && numMatch[1].length >= 5) {
-    return numMatch[1];
-  }
-
-  // 根据 GPU 代际估算
+  // 如果仍然匹配不到，根据 GPU 代际估算
   const nvidiaGPUs: Record<string, GPUSpec> = {
     'rtx 50': { memory: '', driverHint: '570.x+' },
     'rtx 40': { memory: '', driverHint: '550.x+' },
