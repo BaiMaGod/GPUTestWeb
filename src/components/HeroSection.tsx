@@ -71,9 +71,9 @@ export function HeroSection() {
   const calculateRating = (totalScore: number): { rating: PerformanceRating; score: number } => {
     let r: PerformanceRating;
 
-    if (totalScore >= 10000) {
+    if (totalScore >= 15000) {
       r = 'flagship';
-    } else if (totalScore >= 4000) {
+    } else if (totalScore >= 6000) {
       r = 'mainstream';
     } else {
       r = 'entry';
@@ -87,9 +87,9 @@ export function HeroSection() {
 
     const pressureMultiplier = {
       low: 1.0,
-      medium: 1.2,
-      high: 1.5,
-      extreme: 2.0,
+      medium: 1.3,
+      high: 1.8,
+      extreme: 2.5,
     }[pressureLevel];
 
     const subTestResults = SUB_TEST_CONFIG_BASE.map((test, index) => {
@@ -100,7 +100,7 @@ export function HeroSection() {
       return {
         name: test.name,
         fps: avg,
-        score: Math.round(avg * 20 * test.weight * pressureMultiplier),
+        score: Math.round(avg * 15 * test.weight * pressureMultiplier),
       };
     });
 

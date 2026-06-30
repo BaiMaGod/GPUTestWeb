@@ -12,17 +12,19 @@ export const PRESSURE_LEVEL_CONFIG: Record<PressureLevel, {
   cubeCount: number;
   phaseDuration: number;
   label: string;
+  shadowQuality: number;
+  bloomIntensity: number;
 }> = {
-  low: { particleCount: 5000, meshCount: 20, sphereCount: 12, cubeCount: 30, phaseDuration: 3000, label: '低' },
-  medium: { particleCount: 15000, meshCount: 50, sphereCount: 30, cubeCount: 80, phaseDuration: 4000, label: '中' },
-  high: { particleCount: 30000, meshCount: 100, sphereCount: 60, cubeCount: 150, phaseDuration: 5000, label: '高' },
-  extreme: { particleCount: 60000, meshCount: 200, sphereCount: 100, cubeCount: 250, phaseDuration: 6000, label: '极高' },
+  low: { particleCount: 50000, meshCount: 100, sphereCount: 50, cubeCount: 80, phaseDuration: 4000, label: '低', shadowQuality: 512, bloomIntensity: 0.3 },
+  medium: { particleCount: 150000, meshCount: 250, sphereCount: 120, cubeCount: 200, phaseDuration: 5000, label: '中', shadowQuality: 1024, bloomIntensity: 0.6 },
+  high: { particleCount: 400000, meshCount: 500, sphereCount: 250, cubeCount: 400, phaseDuration: 6000, label: '高', shadowQuality: 2048, bloomIntensity: 1.0 },
+  extreme: { particleCount: 800000, meshCount: 1000, sphereCount: 500, cubeCount: 700, phaseDuration: 7000, label: '极高', shadowQuality: 2048, bloomIntensity: 1.5 },
 };
 
 export function getPressureLevelFromFPS(avgFPS: number): PressureLevel {
-  if (avgFPS >= 140) return 'extreme';
-  if (avgFPS >= 80) return 'high';
-  if (avgFPS >= 40) return 'medium';
+  if (avgFPS >= 55) return 'extreme';
+  if (avgFPS >= 45) return 'high';
+  if (avgFPS >= 30) return 'medium';
   return 'low';
 }
 
