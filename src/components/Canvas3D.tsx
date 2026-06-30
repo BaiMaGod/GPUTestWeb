@@ -478,27 +478,15 @@ function ShaderScene({ phase, dynamicPressure }: { phase: TestPhase; dynamicPres
   const { size } = useThree();
   const params = computeShaderParams(dynamicPressure, phase);
 
-  const uniforms = useMemo(() => ({
-    uTime: { value: 0 },
-    uResolution: { value: new THREE.Vector2(size.width, size.height) },
-    uMaxIterations: { value: params.maxIterations },
-    uStepScale: { value: params.stepScale },
-    uLightCount: { value: params.lightCount },
-    uPhase: { value: phase === 'idle' ? 0 : ['raymarch', 'fractal', 'lighting', 'compute'].indexOf(phase) },
-    uFbmOctaves: { value: params.fbmOctaves },
-    uShadowSteps: { value: params.shadowSteps },
-    uAoSteps: { value: params.aoSteps },
-    uVolumeFogSteps: { value: params.volumeFogSteps },
-    uReflectionEnabled: { value: params.reflectionEnabled },
-  }), []);
-
   useFrame((state) => {
     if (meshRef.current) {
       const mat = meshRef.current.material as THREE.ShaderMaterial;
       mat.uniforms.uTime.value = state.clock.elapsedTime;
       mat.uniforms.uResolution.value.set(size.width, size.height);
       mat.uniforms.uMaxIterations.value = params.maxIterations;
+      mat.uniforms.uStepScale.value = params.stepScale;
       mat.uniforms.uLightCount.value = params.lightCount;
+      mat.uniforms.uPhase.value = phase === 'idle' ? 0 : ['raymarch', 'fractal', 'lighting', 'compute'].indexOf(phase);
       mat.uniforms.uFbmOctaves.value = params.fbmOctaves;
       mat.uniforms.uShadowSteps.value = params.shadowSteps;
       mat.uniforms.uAoSteps.value = params.aoSteps;
@@ -513,7 +501,19 @@ function ShaderScene({ phase, dynamicPressure }: { phase: TestPhase; dynamicPres
       <shaderMaterial
         vertexShader={vertexShader}
         fragmentShader={fragmentShader}
-        uniforms={uniforms}
+        uniforms={{
+          uTime: { value: 0 },
+          uResolution: { value: new THREE.Vector2(size.width, size.height) },
+          uMaxIterations: { value: params.maxIterations },
+          uStepScale: { value: params.stepScale },
+          uLightCount: { value: params.lightCount },
+          uPhase: { value: phase === 'idle' ? 0 : ['raymarch', 'fractal', 'lighting', 'compute'].indexOf(phase) },
+          uFbmOctaves: { value: params.fbmOctaves },
+          uShadowSteps: { value: params.shadowSteps },
+          uAoSteps: { value: params.aoSteps },
+          uVolumeFogSteps: { value: params.volumeFogSteps },
+          uReflectionEnabled: { value: params.reflectionEnabled },
+        }}
       />
     </mesh>
   );

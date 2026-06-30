@@ -6,8 +6,9 @@ import { useTestStore, TEST_PHASES, computeShaderParams } from '@/store/testStor
 import type { PerformanceRating } from '@/store/testStore';
 
 const TARGET_FPS = 30;
-const STABILIZE_TIME = 2000;
-const PRESSURE_INCREASE_INTERVAL = 1500;
+const STABILIZE_TIME = 2500;
+const PRESSURE_INCREASE_INTERVAL = 1200;
+const WARMUP_TIME = 1500;
 
 export function HeroSection() {
   const {
@@ -81,8 +82,8 @@ export function HeroSection() {
 
     const overallScore = results.reduce((sum, r) => sum + r.score, 0);
     let ratingVal: PerformanceRating;
-    if (overallScore >= 20000) ratingVal = 'flagship';
-    else if (overallScore >= 8000) ratingVal = 'mainstream';
+    if (overallScore >= 50000) ratingVal = 'flagship';
+    else if (overallScore >= 20000) ratingVal = 'mainstream';
     else ratingVal = 'entry';
 
     const finalPressure = phaseRecords.length > 0
@@ -127,6 +128,11 @@ export function HeroSection() {
     const currentDynPressure = useTestStore.getState().dynamicPressure;
     const phaseElapsed = currentTime - phaseStartTimeRef.current;
 
+    if (phaseElapsed < WARMUP_TIME) {
+      animationRef.current = requestAnimationFrame(updateTest);
+      return;
+    }
+
     if (currentFPSVal > 0) {
       fpsRecordsRef.current.push(currentFPSVal);
     }
@@ -140,6 +146,9 @@ export function HeroSection() {
           phaseMaxPressureRef.current = Math.max(phaseMaxPressureRef.current, currentDynPressure + 1);
         }
       } else {
+        if (stabilizeStartRef.current === 0) {
+          stabilizeStartRef.current = currentTime;
+        }
         const stabilizeElapsed = currentTime - stabilizeStartRef.current;
         if (stabilizeElapsed >= STABILIZE_TIME) {
           isStabilizedRef.current = true;
@@ -170,7 +179,7 @@ export function HeroSection() {
     currentPhaseIdxRef.current = 0;
     phaseStartTimeRef.current = performance.now();
     lastPressureIncreaseRef.current = performance.now();
-    stabilizeStartRef.current = performance.now();
+    stabilizeStartRef.current = 0;
     isStabilizedRef.current = false;
     fpsRecordsRef.current = [];
     phaseMaxPressureRef.current = 1;

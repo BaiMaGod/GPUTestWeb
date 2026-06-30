@@ -32,23 +32,24 @@ export const TEST_PHASES: { phase: TestPhase; name: string; weight: number }[] =
 // 根据动态压力指数计算 shader 参数
 export function computeShaderParams(dynamicPressure: number, phase: TestPhase): ShaderParams {
   // 基础参数（压力=1时）
-  const baseIterations = 64;
-  const basePixelScale = 1.0;
+  const baseIterations = 32;
+  const basePixelScale = 0.5;
 
-  // 递进参数
-  // 每次加压：迭代+32，像素+0.12，噪声+0.4，阴影+2，AO+0.5，体积雾+1
-  const iterations = Math.min(512, baseIterations + dynamicPressure * 32);
-  const pixelScale = Math.min(2.0, basePixelScale + dynamicPressure * 0.12);
-  const fbmOctaves = Math.min(8, 2 + Math.floor(dynamicPressure * 0.4));
-  const shadowSteps = Math.min(48, 8 + dynamicPressure * 2);
-  const aoSteps = Math.min(12, 2 + Math.floor(dynamicPressure * 0.5));
-  const volumeFogSteps = Math.min(24, 4 + dynamicPressure);
-  const bloomIntensity = Math.min(2.0, 0.3 + dynamicPressure * 0.08);
-  const reflectionEnabled = dynamicPressure >= 3;
-  const stepScale = Math.min(1.5, 0.7 + dynamicPressure * 0.05);
+  // 递进参数 - 指数级增长，确保高端显卡也能被压满
+  // P1: 32次, P2: 64次, P4: 128次, P8: 256次, P16: 512次
+  const iterations = Math.min(1024, Math.floor(baseIterations * Math.pow(1.25, dynamicPressure - 1)));
+  // 像素缩放：P1=0.5, P5=1.0, P10=1.5, P15=2.0
+  const pixelScale = Math.min(2.5, basePixelScale + dynamicPressure * 0.1);
+  const fbmOctaves = Math.min(8, 2 + Math.floor(dynamicPressure * 0.3));
+  const shadowSteps = Math.min(64, 4 + dynamicPressure * 3);
+  const aoSteps = Math.min(16, 2 + Math.floor(dynamicPressure * 0.6));
+  const volumeFogSteps = Math.min(32, 2 + dynamicPressure * 1.5);
+  const bloomIntensity = Math.min(2.0, 0.3 + dynamicPressure * 0.06);
+  const reflectionEnabled = dynamicPressure >= 4;
+  const stepScale = Math.min(1.3, 0.6 + dynamicPressure * 0.04);
 
-  // 光源数：每 2 级加 1 个，上限 4
-  const lightCount = Math.min(4, 1 + Math.floor(dynamicPressure / 2));
+  // 光源数：每 3 级加 1 个，上限 4
+  const lightCount = Math.min(4, 1 + Math.floor(dynamicPressure / 3));
 
   const phaseConfig: Record<TestPhase, { name: string; weight: number }> = {
     idle: { name: '', weight: 0 },
