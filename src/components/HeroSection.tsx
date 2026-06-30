@@ -71,9 +71,9 @@ export function HeroSection() {
   const calculateRating = (totalScore: number): { rating: PerformanceRating; score: number } => {
     let r: PerformanceRating;
 
-    if (totalScore >= 18000) {
+    if (totalScore >= 10000) {
       r = 'flagship';
-    } else if (totalScore >= 8000) {
+    } else if (totalScore >= 4000) {
       r = 'mainstream';
     } else {
       r = 'entry';
@@ -85,6 +85,13 @@ export function HeroSection() {
   const finishBenchmark = () => {
     const pressureLevel = pressureLevelRef.current;
 
+    const pressureMultiplier = {
+      low: 1.0,
+      medium: 1.2,
+      high: 1.5,
+      extreme: 2.0,
+    }[pressureLevel];
+
     const subTestResults = SUB_TEST_CONFIG_BASE.map((test, index) => {
       const records = phaseFPSRecordsRef.current[index] || [];
       const avg = records.length > 0
@@ -93,7 +100,7 @@ export function HeroSection() {
       return {
         name: test.name,
         fps: avg,
-        score: Math.round(avg * 100 * test.weight),
+        score: Math.round(avg * 20 * test.weight * pressureMultiplier),
       };
     });
 
