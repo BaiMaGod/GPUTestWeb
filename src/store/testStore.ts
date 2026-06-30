@@ -14,10 +14,10 @@ export const PRESSURE_LEVEL_CONFIG: Record<PressureLevel, {
   label: string;
   bloomIntensity: number;
 }> = {
-  low: { maxIterations: 64, stepScale: 0.8, lightCount: 1, resolutionScale: 0.5, phaseDuration: 4000, label: '低', bloomIntensity: 0.3 },
-  medium: { maxIterations: 128, stepScale: 1.0, lightCount: 2, resolutionScale: 0.75, phaseDuration: 5000, label: '中', bloomIntensity: 0.6 },
-  high: { maxIterations: 192, stepScale: 1.2, lightCount: 3, resolutionScale: 1.0, phaseDuration: 6000, label: '高', bloomIntensity: 1.0 },
-  extreme: { maxIterations: 256, stepScale: 1.5, lightCount: 4, resolutionScale: 1.0, phaseDuration: 7000, label: '极高', bloomIntensity: 1.5 },
+  low: { maxIterations: 128, stepScale: 0.9, lightCount: 1, resolutionScale: 0.75, phaseDuration: 4000, label: '低', bloomIntensity: 0.4 },
+  medium: { maxIterations: 256, stepScale: 1.0, lightCount: 2, resolutionScale: 1.0, phaseDuration: 5000, label: '中', bloomIntensity: 0.7 },
+  high: { maxIterations: 384, stepScale: 1.1, lightCount: 3, resolutionScale: 1.25, phaseDuration: 6000, label: '高', bloomIntensity: 1.2 },
+  extreme: { maxIterations: 512, stepScale: 1.2, lightCount: 4, resolutionScale: 1.5, phaseDuration: 7000, label: '极高', bloomIntensity: 1.8 },
 };
 
 export function getPressureLevelFromFPS(avgFPS: number): PressureLevel {
