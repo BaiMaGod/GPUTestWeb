@@ -152,9 +152,9 @@ export function HeroSection() {
         warmupFPSRef.current.push(currentFPSVal);
       }
 
-      const targetUsage = 50 + currentFPSVal * 0.4;
-      const usage = Math.min(100, Math.max(20, targetUsage + (Math.random() - 0.5) * 8));
-      setGpuUsage(Math.round(usage));
+      const displayRefreshRate = 60;
+      const estimatedUsage = Math.min(100, Math.max(5, Math.round((displayRefreshRate / Math.max(currentFPSVal, 1)) * 25 + (Math.random() - 0.5) * 6)));
+      setGpuUsage(estimatedUsage);
 
       if (elapsed >= WARMUP_DURATION) {
         finishWarmup();
@@ -199,9 +199,9 @@ export function HeroSection() {
       phaseFPSRecordsRef.current[currentPhaseIdx].push(currentFPSVal);
     }
 
-    const targetUsage = 50 + currentFPSVal * 0.5;
-    const usage = Math.min(100, Math.max(20, targetUsage + (Math.random() - 0.5) * 10));
-    setGpuUsage(Math.round(usage));
+    const displayRefreshRate = 60;
+    const estimatedUsage = Math.min(100, Math.max(10, Math.round((displayRefreshRate / Math.max(currentFPSVal, 1)) * 35 + (Math.random() - 0.5) * 8)));
+    setGpuUsage(estimatedUsage);
 
     animationRef.current = requestAnimationFrame(updateTest);
   };

@@ -1,10 +1,259 @@
 import { useRef, useMemo } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
-import { Points, PointMaterial } from '@react-three/drei';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { useTestStore, PRESSURE_LEVEL_CONFIG } from '@/store/testStore';
 import type { TestPhase, PressureLevel } from '@/store/testStore';
+
+const vertexShader = `
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const fragmentShader = `
+  precision highp float;
+  uniform float uTime;
+  uniform vec2 uResolution;
+  uniform int uMaxIterations;
+  uniform float uStepScale;
+  uniform int uLightCount;
+  uniform int uPhase;
+  varying vec2 vUv;
+
+  #define MAX_STEPS 256
+  #define MAX_DIST 100.0
+  #define SURF_DIST 0.001
+
+  mat2 rot2(float a) {
+    float s = sin(a), c = cos(a);
+    return mat2(c, -s, s, c);
+  }
+
+  float sdSphere(vec3 p, float r) {
+    return length(p) - r;
+  }
+
+  float sdBox(vec3 p, vec3 b) {
+    vec3 q = abs(p) - b;
+    return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0);
+  }
+
+  float sdTorus(vec3 p, vec2 t) {
+    vec2 q = vec2(length(p.xz) - t.x, p.y);
+    return length(q) - t.y;
+  }
+
+  float mandelbulb(vec3 pos, int iterations) {
+    vec3 z = pos;
+    float dr = 1.0;
+    float r = 0.0;
+    float power = 8.0;
+
+    for (int i = 0; i < 64; i++) {
+      if (i >= iterations) break;
+      r = length(z);
+      if (r > 2.0) break;
+
+      float theta = acos(z.z / r);
+      float phi = atan(z.y, z.x);
+      dr = pow(r, power - 1.0) * power * dr + 1.0;
+
+      float zr = pow(r, power);
+      theta = theta * power;
+      phi = phi * power;
+
+      z = zr * vec3(sin(theta) * cos(phi), sin(phi) * sin(theta), cos(theta));
+      z += pos;
+    }
+    return 0.5 * log(r) * r / dr;
+  }
+
+  float fbm(vec3 p) {
+    float value = 0.0;
+    float amplitude = 0.5;
+    float frequency = 1.0;
+    for (int i = 0; i < 5; i++) {
+      value += amplitude * sin(p.x * frequency) * sin(p.y * frequency) * sin(p.z * frequency);
+      amplitude *= 0.5;
+      frequency *= 2.0;
+    }
+    return value;
+  }
+
+  float getDist(vec3 p) {
+    float t = uTime * 0.3;
+
+    if (uPhase == 0) {
+      vec3 bp = p;
+      bp.xy *= rot2(t * 0.3);
+      bp.xz *= rot2(t * 0.2);
+      float sphere = sdSphere(bp, 1.8);
+      float torus = sdTorus(bp + vec3(0.0, 0.0, 0.0), vec2(2.5, 0.3));
+      return min(sphere, torus);
+    }
+
+    if (uPhase == 1) {
+      vec3 mp = p * 0.6;
+      mp.xy *= rot2(t * 0.2);
+      mp.xz *= rot2(t * 0.15);
+      return mandelbulb(mp, uMaxIterations) * 1.6;
+    }
+
+    if (uPhase == 2) {
+      vec3 mp = p * 0.5;
+      mp.xy *= rot2(t * 0.15);
+      float mb = mandelbulb(mp, max(32, uMaxIterations / 2)) * 2.0;
+      float noise = fbm(p * 1.5 + t * 0.5) * 0.3;
+      return mb + noise;
+    }
+
+    vec3 mp = p * 0.45;
+    mp.xy *= rot2(t * 0.1);
+    mp.xz *= rot2(t * 0.08);
+    float mb = mandelbulb(mp, uMaxIterations) * 2.2;
+    float noise = fbm(p * 2.0 + t * 0.3) * 0.25;
+    vec3 tp = p;
+    tp.xy *= rot2(t * 0.4);
+    float torus = sdTorus(tp, vec2(3.0, 0.15));
+    return min(mb + noise, torus);
+  }
+
+  float rayMarch(vec3 ro, vec3 rd) {
+    float d0 = 0.0;
+    for (int i = 0; i < MAX_STEPS; i++) {
+      if (i >= uMaxIterations) break;
+      vec3 p = ro + rd * d0;
+      float ds = getDist(p) * uStepScale;
+      d0 += ds;
+      if (d0 > MAX_DIST || abs(ds) < SURF_DIST) break;
+    }
+    return d0;
+  }
+
+  vec3 getNormal(vec3 p) {
+    float d = getDist(p);
+    vec2 e = vec2(0.001, 0.0);
+    vec3 n = d - vec3(
+      getDist(p - e.xyy),
+      getDist(p - e.yxy),
+      getDist(p - e.yyx)
+    );
+    return normalize(n);
+  }
+
+  float softShadow(vec3 ro, vec3 rd, float mint, float maxt, float k) {
+    float res = 1.0;
+    float t = mint;
+    for (int i = 0; i < 32; i++) {
+      if (t >= maxt) break;
+      float h = getDist(ro + rd * t);
+      if (h < 0.001) return 0.0;
+      res = min(res, k * h / t);
+      t += h * 0.5;
+    }
+    return clamp(res, 0.0, 1.0);
+  }
+
+  vec3 getLighting(vec3 p, vec3 n, vec3 ro) {
+    vec3 col = vec3(0.0);
+    vec3 ambient = vec3(0.05, 0.05, 0.1);
+    col += ambient;
+
+    float t = uTime * 0.5;
+    vec3 viewDir = normalize(ro - p);
+
+    if (uLightCount >= 1) {
+      vec3 lightPos1 = vec3(5.0 * sin(t), 5.0, 5.0 * cos(t));
+      vec3 lightCol1 = vec3(0.4, 0.6, 1.0);
+      vec3 l1 = normalize(lightPos1 - p);
+      float diff1 = max(dot(n, l1), 0.0);
+      float shadow1 = softShadow(p + n * 0.01, l1, 0.01, 10.0, 16.0);
+      vec3 half1 = normalize(l1 + viewDir);
+      float spec1 = pow(max(dot(n, half1), 0.0), 64.0);
+      col += lightCol1 * (diff1 * shadow1 + spec1 * shadow1 * 0.5);
+    }
+
+    if (uLightCount >= 2) {
+      vec3 lightPos2 = vec3(-5.0 * cos(t * 0.7), 3.0 * sin(t * 0.8), -5.0 * sin(t * 0.7));
+      vec3 lightCol2 = vec3(1.0, 0.4, 0.8);
+      vec3 l2 = normalize(lightPos2 - p);
+      float diff2 = max(dot(n, l2), 0.0);
+      float shadow2 = softShadow(p + n * 0.01, l2, 0.01, 10.0, 16.0);
+      vec3 half2 = normalize(l2 + viewDir);
+      float spec2 = pow(max(dot(n, half2), 0.0), 64.0);
+      col += lightCol2 * (diff2 * shadow2 + spec2 * shadow2 * 0.5);
+    }
+
+    if (uLightCount >= 3) {
+      vec3 lightPos3 = vec3(0.0, -4.0, 3.0 * sin(t * 1.2));
+      vec3 lightCol3 = vec3(0.2, 1.0, 0.6);
+      vec3 l3 = normalize(lightPos3 - p);
+      float diff3 = max(dot(n, l3), 0.0);
+      float shadow3 = softShadow(p + n * 0.01, l3, 0.01, 10.0, 12.0);
+      vec3 half3 = normalize(l3 + viewDir);
+      float spec3 = pow(max(dot(n, half3), 0.0), 48.0);
+      col += lightCol3 * (diff3 * shadow3 + spec3 * shadow3 * 0.3);
+    }
+
+    if (uLightCount >= 4) {
+      vec3 lightPos4 = vec3(3.0 * cos(t * 1.5), 4.0 * cos(t * 0.5), -3.0 * sin(t * 1.5));
+      vec3 lightCol4 = vec3(1.0, 0.8, 0.2);
+      vec3 l4 = normalize(lightPos4 - p);
+      float diff4 = max(dot(n, l4), 0.0);
+      float shadow4 = softShadow(p + n * 0.01, l4, 0.01, 8.0, 12.0);
+      vec3 half4 = normalize(l4 + viewDir);
+      float spec4 = pow(max(dot(n, half4), 0.0), 32.0);
+      col += lightCol4 * (diff4 * shadow4 + spec4 * shadow4 * 0.3);
+    }
+
+    float fresnel = pow(1.0 - max(dot(n, viewDir), 0.0), 3.0);
+    col += vec3(0.3, 0.5, 1.0) * fresnel * 0.4;
+
+    return col;
+  }
+
+  void main() {
+    vec2 uv = (gl_FragCoord.xy - 0.5 * uResolution.xy) / uResolution.y;
+
+    float t = uTime * 0.2;
+    vec3 ro = vec3(sin(t) * 6.0, 2.0 + sin(t * 0.7) * 0.5, cos(t) * 6.0);
+    vec3 lookAt = vec3(0.0, 0.0, 0.0);
+
+    vec3 f = normalize(lookAt - ro);
+    vec3 r = normalize(cross(vec3(0.0, 1.0, 0.0), f));
+    vec3 u = cross(f, r);
+    vec3 rd = normalize(f + uv.x * r + uv.y * u);
+
+    float d = rayMarch(ro, rd);
+
+    vec3 col = vec3(0.0);
+    if (d < MAX_DIST) {
+      vec3 p = ro + rd * d;
+      vec3 n = getNormal(p);
+      col = getLighting(p, n, ro);
+
+      float glow = exp(-d * 0.15) * 0.3;
+      col += vec3(0.3, 0.5, 1.0) * glow;
+    } else {
+      float glow = 0.0;
+      for (int i = 0; i < 48; i++) {
+        if (i >= uMaxIterations / 4) break;
+        vec3 p = ro + rd * float(i) * 0.8;
+        float dist = getDist(p);
+        glow += 0.008 / (dist + 0.1);
+      }
+      col = vec3(0.1, 0.15, 0.3) + vec3(0.3, 0.5, 1.0) * glow * 0.5;
+    }
+
+    col = pow(col, vec3(0.4545));
+    col = col / (1.0 + col);
+
+    gl_FragColor = vec4(col, 1.0);
+  }
+`;
 
 function FPSMonitor() {
   const frameCountRef = useRef(0);
@@ -32,410 +281,126 @@ function FPSMonitor() {
   return null;
 }
 
-function ParticlePhase({ particleCount }: { particleCount: number }) {
-  const meshRef = useRef<THREE.Points>(null);
+function ShaderScene({ phase, pressureLevel }: { phase: TestPhase; pressureLevel: PressureLevel }) {
+  const meshRef = useRef<THREE.Mesh>(null);
+  const { viewport } = useThree();
+  const cfg = PRESSURE_LEVEL_CONFIG[pressureLevel];
 
-  const particles = useMemo(() => {
-    const positions = new Float32Array(particleCount * 3);
-    const colors = new Float32Array(particleCount * 3);
-
-    for (let i = 0; i < particleCount; i++) {
-      const i3 = i * 3;
-      const radius = Math.random() * 15 + 2;
-      const theta = Math.random() * Math.PI * 2;
-      const phi = Math.acos(2 * Math.random() - 1);
-
-      positions[i3] = radius * Math.sin(phi) * Math.cos(theta);
-      positions[i3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
-      positions[i3 + 2] = radius * Math.cos(phi);
-
-      const colorChoice = Math.random();
-      if (colorChoice < 0.33) {
-        colors[i3] = 0.23;
-        colors[i3 + 1] = 0.51;
-        colors[i3 + 2] = 0.96;
-      } else if (colorChoice < 0.66) {
-        colors[i3] = 0.55;
-        colors[i3 + 1] = 0.36;
-        colors[i3 + 2] = 0.96;
-      } else {
-        colors[i3] = 0.06;
-        colors[i3 + 1] = 0.73;
-        colors[i3 + 2] = 0.51;
-      }
+  const phaseIndex = useMemo(() => {
+    switch (phase) {
+      case 'raymarch': return 0;
+      case 'fractal': return 1;
+      case 'lighting': return 2;
+      case 'compute': return 3;
+      default: return 0;
     }
+  }, [phase]);
 
-    return { positions, colors };
-  }, [particleCount]);
+  const uniforms = useMemo(() => ({
+    uTime: { value: 0 },
+    uResolution: { value: new THREE.Vector2(viewport.width * 100, viewport.height * 100) },
+    uMaxIterations: { value: cfg.maxIterations },
+    uStepScale: { value: cfg.stepScale },
+    uLightCount: { value: cfg.lightCount },
+    uPhase: { value: phaseIndex },
+  }), [cfg.maxIterations, cfg.stepScale, cfg.lightCount, phaseIndex, viewport.width, viewport.height]);
 
   useFrame((state) => {
     if (meshRef.current) {
-      meshRef.current.rotation.y += 0.003;
-      meshRef.current.rotation.x = Math.sin(state.clock.elapsedTime * 0.3) * 0.3;
+      const mat = meshRef.current.material as THREE.ShaderMaterial;
+      mat.uniforms.uTime.value = state.clock.elapsedTime;
+      mat.uniforms.uMaxIterations.value = cfg.maxIterations;
+      mat.uniforms.uStepScale.value = cfg.stepScale;
+      mat.uniforms.uLightCount.value = cfg.lightCount;
+      mat.uniforms.uPhase.value = phaseIndex;
     }
   });
 
   return (
-    <Points ref={meshRef} positions={particles.positions} colors={particles.colors} stride={3} frustumCulled={false}>
-      <PointMaterial
-        transparent
-        vertexColors
-        size={0.05}
-        sizeAttenuation
-        depthWrite={false}
-        blending={THREE.AdditiveBlending}
+    <mesh ref={meshRef}>
+      <planeGeometry args={[40, 30]} />
+      <shaderMaterial
+        vertexShader={vertexShader}
+        fragmentShader={fragmentShader}
+        uniforms={uniforms}
       />
-    </Points>
-  );
-}
-
-function LightingPhase({ meshCount, shadowQuality }: { meshCount: number; shadowQuality: number }) {
-  const groupRef = useRef<THREE.Group>(null);
-  const instancedRef = useRef<THREE.InstancedMesh>(null);
-  const dummy = useMemo(() => new THREE.Object3D(), []);
-
-  const meshData = useMemo(() => {
-    const data: { pos: [number, number, number]; scale: number; hue: number; rotSpeed: number }[] = [];
-    for (let i = 0; i < meshCount; i++) {
-      data.push({
-        pos: [
-          (Math.random() - 0.5) * 25,
-          (Math.random() - 0.5) * 25,
-          (Math.random() - 0.5) * 25,
-        ],
-        scale: 0.3 + Math.random() * 0.8,
-        hue: Math.random(),
-        rotSpeed: 0.5 + Math.random() * 1.5,
-      });
-    }
-    return data;
-  }, [meshCount]);
-
-  useFrame((state) => {
-    if (instancedRef.current) {
-      for (let i = 0; i < meshCount; i++) {
-        const d = meshData[i];
-        dummy.position.set(d.pos[0], d.pos[1], d.pos[2]);
-        dummy.scale.setScalar(d.scale);
-        dummy.rotation.x = state.clock.elapsedTime * d.rotSpeed * 0.5;
-        dummy.rotation.y = state.clock.elapsedTime * d.rotSpeed * 0.7;
-        dummy.updateMatrix();
-        instancedRef.current.setMatrixAt(i, dummy.matrix);
-      }
-      instancedRef.current.instanceMatrix.needsUpdate = true;
-    }
-    if (groupRef.current) {
-      groupRef.current.rotation.y = state.clock.elapsedTime * 0.05;
-    }
-  });
-
-  const lightCount = Math.min(12, 4 + Math.floor(meshCount / 100));
-
-  return (
-    <group ref={groupRef}>
-      <instancedMesh ref={instancedRef} args={[undefined, undefined, meshCount]} castShadow receiveShadow>
-        <torusKnotGeometry args={[0.5, 0.18, 64, 16]} />
-        <meshStandardMaterial
-          metalness={0.8}
-          roughness={0.15}
-          color="#ffffff"
-        />
-      </instancedMesh>
-      {Array.from({ length: lightCount }).map((_, i) => {
-        const angle = (i / lightCount) * Math.PI * 2;
-        const hue = i / lightCount;
-        return (
-          <pointLight
-            key={i}
-            position={[Math.cos(angle) * 10, Math.sin(i * 1.7) * 8, Math.sin(angle) * 10]}
-            intensity={2 + Math.random()}
-            color={new THREE.Color().setHSL(hue, 0.8, 0.6)}
-            distance={35}
-            decay={2}
-            castShadow
-            shadow-mapSize-width={shadowQuality}
-            shadow-mapSize-height={shadowQuality}
-          />
-        );
-      })}
-      <ambientLight intensity={0.15} />
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -12, 0]} receiveShadow>
-        <planeGeometry args={[100, 100]} />
-        <meshStandardMaterial color="#1a1a2e" metalness={0.5} roughness={0.8} />
-      </mesh>
-    </group>
-  );
-}
-
-function PhysicsPhase({ cubeCount, shadowQuality }: { cubeCount: number; shadowQuality: number }) {
-  const instancedRef = useRef<THREE.InstancedMesh>(null);
-  const dummy = useMemo(() => new THREE.Object3D(), []);
-  const velocities = useRef<{ vx: number; vy: number; vz: number; rx: number; ry: number; rz: number }[]>([]);
-  const bounds = 10;
-
-  const cubes = useMemo(() => {
-    velocities.current = [];
-    const result: { pos: [number, number, number]; size: number; hue: number }[] = [];
-    for (let i = 0; i < cubeCount; i++) {
-      result.push({
-        pos: [
-          (Math.random() - 0.5) * bounds * 1.8,
-          (Math.random() - 0.5) * bounds * 1.8,
-          (Math.random() - 0.5) * bounds * 1.8,
-        ],
-        size: 0.2 + Math.random() * 0.5,
-        hue: Math.random(),
-      });
-      velocities.current.push({
-        vx: (Math.random() - 0.5) * 0.2,
-        vy: (Math.random() - 0.5) * 0.2,
-        vz: (Math.random() - 0.5) * 0.2,
-        rx: (Math.random() - 0.5) * 0.03,
-        ry: (Math.random() - 0.5) * 0.03,
-        rz: (Math.random() - 0.5) * 0.03,
-      });
-    }
-    return result;
-  }, [cubeCount]);
-
-  useFrame(() => {
-    if (!instancedRef.current) return;
-
-    for (let i = 0; i < cubeCount; i++) {
-      const c = cubes[i];
-      const v = velocities.current[i];
-      if (!v) continue;
-
-      c.pos[0] += v.vx;
-      c.pos[1] += v.vy;
-      c.pos[2] += v.vz;
-
-      if (Math.abs(c.pos[0]) > bounds) { v.vx *= -1; c.pos[0] = Math.sign(c.pos[0]) * bounds; }
-      if (Math.abs(c.pos[1]) > bounds) { v.vy *= -1; c.pos[1] = Math.sign(c.pos[1]) * bounds; }
-      if (Math.abs(c.pos[2]) > bounds) { v.vz *= -1; c.pos[2] = Math.sign(c.pos[2]) * bounds; }
-
-      dummy.position.set(c.pos[0], c.pos[1], c.pos[2]);
-      dummy.scale.setScalar(c.size);
-      dummy.rotation.x += v.rx;
-      dummy.rotation.y += v.ry;
-      dummy.rotation.z += v.rz;
-      dummy.updateMatrix();
-      instancedRef.current.setMatrixAt(i, dummy.matrix);
-    }
-    instancedRef.current.instanceMatrix.needsUpdate = true;
-  });
-
-  return (
-    <group>
-      <ambientLight intensity={0.3} />
-      <directionalLight
-        position={[10, 15, 10]}
-        intensity={1.5}
-        color="#3B82F6"
-        castShadow
-        shadow-mapSize-width={shadowQuality}
-        shadow-mapSize-height={shadowQuality}
-        shadow-camera-left={-15}
-        shadow-camera-right={15}
-        shadow-camera-top={15}
-        shadow-camera-bottom={-15}
-      />
-      <directionalLight position={[-8, -5, -8]} intensity={0.6} color="#8B5CF6" />
-      <instancedMesh ref={instancedRef} args={[undefined, undefined, cubeCount]} castShadow receiveShadow>
-        <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial
-          metalness={0.6}
-          roughness={0.3}
-          color="#ffffff"
-        />
-      </instancedMesh>
-    </group>
-  );
-}
-
-function MaterialsPhase({ sphereCount, shadowQuality }: { sphereCount: number; shadowQuality: number }) {
-  const groupRef = useRef<THREE.Group>(null);
-  const instancedRef = useRef<THREE.InstancedMesh>(null);
-  const dummy = useMemo(() => new THREE.Object3D(), []);
-
-  const spheres = useMemo(() => {
-    const result: { pos: [number, number, number]; scale: number; hue: number; speed: number }[] = [];
-    for (let i = 0; i < sphereCount; i++) {
-      const angle = (i / sphereCount) * Math.PI * 2 + Math.random() * 0.5;
-      const radius = 3 + (i % 8) * 1.2 + Math.random() * 2;
-      result.push({
-        pos: [
-          Math.cos(angle) * radius,
-          (Math.random() - 0.5) * 10,
-          Math.sin(angle) * radius,
-        ],
-        scale: 0.4 + Math.random() * 0.8,
-        hue: i / sphereCount,
-        speed: 0.3 + Math.random() * 0.7,
-      });
-    }
-    return result;
-  }, [sphereCount]);
-
-  useFrame((state) => {
-    if (instancedRef.current) {
-      for (let i = 0; i < sphereCount; i++) {
-        const s = spheres[i];
-        const angle = (i / sphereCount) * Math.PI * 2 + state.clock.elapsedTime * s.speed * 0.3;
-        const radius = 3 + (i % 8) * 1.2;
-        dummy.position.set(
-          Math.cos(angle) * radius,
-          s.pos[1] + Math.sin(state.clock.elapsedTime * s.speed + i) * 1.5,
-          Math.sin(angle) * radius
-        );
-        dummy.scale.setScalar(s.scale);
-        dummy.updateMatrix();
-        instancedRef.current.setMatrixAt(i, dummy.matrix);
-      }
-      instancedRef.current.instanceMatrix.needsUpdate = true;
-    }
-    if (groupRef.current) {
-      groupRef.current.rotation.y = state.clock.elapsedTime * 0.08;
-    }
-  });
-
-  return (
-    <group ref={groupRef}>
-      <ambientLight intensity={0.1} />
-      <pointLight position={[0, 4, 0]} intensity={4} color="#ffffff" distance={40} decay={1.5} castShadow shadow-mapSize-width={shadowQuality} shadow-mapSize-height={shadowQuality} />
-      <pointLight position={[-8, 0, 8]} intensity={2.5} color="#3B82F6" distance={30} decay={2} />
-      <pointLight position={[8, 0, -8]} intensity={2.5} color="#8B5CF6" distance={30} decay={2} />
-      <pointLight position={[0, -4, 0]} intensity={2} color="#10B981" distance={25} decay={2} />
-      <pointLight position={[6, 3, 6]} intensity={1.5} color="#F59E0B" distance={20} decay={2} />
-      <pointLight position={[-6, -3, -6]} intensity={1.5} color="#EC4899" distance={20} decay={2} />
-      <instancedMesh ref={instancedRef} args={[undefined, undefined, sphereCount]} castShadow receiveShadow>
-        <sphereGeometry args={[0.8, 32, 32]} />
-        <meshPhysicalMaterial
-          metalness={0.2}
-          roughness={0.05}
-          clearcoat={1}
-          clearcoatRoughness={0.05}
-          transmission={0.6}
-          thickness={0.8}
-          ior={1.5}
-          color="#ffffff"
-        />
-      </instancedMesh>
-    </group>
-  );
-}
-
-function WarmupPhase({ particleCount }: { particleCount: number }) {
-  const meshRef = useRef<THREE.Points>(null);
-
-  const particles = useMemo(() => {
-    const positions = new Float32Array(particleCount * 3);
-    const colors = new Float32Array(particleCount * 3);
-
-    for (let i = 0; i < particleCount; i++) {
-      const i3 = i * 3;
-      const radius = Math.random() * 12 + 2;
-      const theta = Math.random() * Math.PI * 2;
-      const phi = Math.acos(2 * Math.random() - 1);
-
-      positions[i3] = radius * Math.sin(phi) * Math.cos(theta);
-      positions[i3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
-      positions[i3 + 2] = radius * Math.cos(phi);
-
-      const colorChoice = Math.random();
-      if (colorChoice < 0.33) {
-        colors[i3] = 0.23; colors[i3 + 1] = 0.51; colors[i3 + 2] = 0.96;
-      } else if (colorChoice < 0.66) {
-        colors[i3] = 0.55; colors[i3 + 1] = 0.36; colors[i3 + 2] = 0.96;
-      } else {
-        colors[i3] = 0.06; colors[i3 + 1] = 0.73; colors[i3 + 2] = 0.51;
-      }
-    }
-    return { positions, colors };
-  }, [particleCount]);
-
-  useFrame((state) => {
-    if (meshRef.current) {
-      meshRef.current.rotation.y += 0.004;
-      meshRef.current.rotation.x = Math.sin(state.clock.elapsedTime * 0.4) * 0.4;
-    }
-  });
-
-  return (
-    <Points ref={meshRef} positions={particles.positions} colors={particles.colors} stride={3} frustumCulled={false}>
-      <PointMaterial transparent vertexColors size={0.05} sizeAttenuation depthWrite={false} blending={THREE.AdditiveBlending} />
-    </Points>
+    </mesh>
   );
 }
 
 function IdleScene() {
-  const meshRef = useRef<THREE.Points>(null);
-  const coreRef = useRef<THREE.Mesh>(null);
-  const particleCount = 5000;
+  const meshRef = useRef<THREE.Mesh>(null);
+  const { viewport } = useThree();
 
-  const particles = useMemo(() => {
-    const positions = new Float32Array(particleCount * 3);
-    const colors = new Float32Array(particleCount * 3);
-
-    for (let i = 0; i < particleCount; i++) {
-      const i3 = i * 3;
-      const radius = Math.random() * 10 + 2;
-      const theta = Math.random() * Math.PI * 2;
-      const phi = Math.acos(2 * Math.random() - 1);
-
-      positions[i3] = radius * Math.sin(phi) * Math.cos(theta);
-      positions[i3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
-      positions[i3 + 2] = radius * Math.cos(phi);
-
-      const colorChoice = Math.random();
-      if (colorChoice < 0.3) {
-        colors[i3] = 0.23; colors[i3 + 1] = 0.51; colors[i3 + 2] = 0.96;
-      } else if (colorChoice < 0.6) {
-        colors[i3] = 0.55; colors[i3 + 1] = 0.36; colors[i3 + 2] = 0.96;
-      } else {
-        colors[i3] = 0.06; colors[i3 + 1] = 0.73; colors[i3 + 2] = 0.51;
-      }
-    }
-    return { positions, colors };
-  }, []);
+  const uniforms = useMemo(() => ({
+    uTime: { value: 0 },
+    uResolution: { value: new THREE.Vector2(viewport.width * 100, viewport.height * 100) },
+    uMaxIterations: { value: 48 },
+    uStepScale: { value: 0.8 },
+    uLightCount: { value: 1 },
+    uPhase: { value: 0 },
+  }), [viewport.width, viewport.height]);
 
   useFrame((state) => {
     if (meshRef.current) {
-      meshRef.current.rotation.y += 0.001;
-      meshRef.current.rotation.x += 0.0005;
-    }
-    if (coreRef.current) {
-      coreRef.current.rotation.y = state.clock.elapsedTime * 0.5;
-      coreRef.current.rotation.z = state.clock.elapsedTime * 0.3;
+      const mat = meshRef.current.material as THREE.ShaderMaterial;
+      mat.uniforms.uTime.value = state.clock.elapsedTime;
     }
   });
 
   return (
-    <>
-      <ambientLight intensity={0.5} />
-      <pointLight position={[10, 10, 10]} intensity={1} color="#3B82F6" />
-      <pointLight position={[-10, -10, -10]} intensity={0.5} color="#8B5CF6" />
-      <Points ref={meshRef} positions={particles.positions} colors={particles.colors} stride={3} frustumCulled={false}>
-        <PointMaterial transparent vertexColors size={0.05} sizeAttenuation depthWrite={false} blending={THREE.AdditiveBlending} />
-      </Points>
-      <mesh ref={coreRef}>
-        <icosahedronGeometry args={[1.5, 2]} />
-        <meshBasicMaterial color="#3B82F6" wireframe transparent opacity={0.8} />
-      </mesh>
-    </>
+    <mesh ref={meshRef}>
+      <planeGeometry args={[40, 30]} />
+      <shaderMaterial
+        vertexShader={vertexShader}
+        fragmentShader={fragmentShader}
+        uniforms={uniforms}
+      />
+    </mesh>
+  );
+}
+
+function WarmupPhase({ pressureLevel }: { pressureLevel: PressureLevel }) {
+  const meshRef = useRef<THREE.Mesh>(null);
+  const { viewport } = useThree();
+  const cfg = PRESSURE_LEVEL_CONFIG[pressureLevel];
+
+  const uniforms = useMemo(() => ({
+    uTime: { value: 0 },
+    uResolution: { value: new THREE.Vector2(viewport.width * 100, viewport.height * 100) },
+    uMaxIterations: { value: Math.floor(cfg.maxIterations * 0.6) },
+    uStepScale: { value: cfg.stepScale },
+    uLightCount: { value: Math.max(1, Math.floor(cfg.lightCount * 0.5)) },
+    uPhase: { value: 0 },
+  }), [cfg.maxIterations, cfg.stepScale, cfg.lightCount, viewport.width, viewport.height]);
+
+  useFrame((state) => {
+    if (meshRef.current) {
+      const mat = meshRef.current.material as THREE.ShaderMaterial;
+      mat.uniforms.uTime.value = state.clock.elapsedTime;
+    }
+  });
+
+  return (
+    <mesh ref={meshRef}>
+      <planeGeometry args={[40, 30]} />
+      <shaderMaterial
+        vertexShader={vertexShader}
+        fragmentShader={fragmentShader}
+        uniforms={uniforms}
+      />
+    </mesh>
   );
 }
 
 function PhaseContent({ phase, pressureLevel }: { phase: TestPhase; pressureLevel: PressureLevel }) {
-  const cfg = PRESSURE_LEVEL_CONFIG[pressureLevel];
-  const warmupCount = Math.floor(cfg.particleCount * 0.6);
-
   switch (phase) {
-    case 'warmup': return <WarmupPhase particleCount={warmupCount} />;
-    case 'particles': return <ParticlePhase particleCount={cfg.particleCount} />;
-    case 'lighting': return <LightingPhase meshCount={cfg.meshCount} shadowQuality={cfg.shadowQuality} />;
-    case 'physics': return <PhysicsPhase cubeCount={cfg.cubeCount} shadowQuality={cfg.shadowQuality} />;
-    case 'materials': return <MaterialsPhase sphereCount={cfg.sphereCount} shadowQuality={cfg.shadowQuality} />;
+    case 'warmup': return <WarmupPhase pressureLevel={pressureLevel} />;
+    case 'raymarch':
+    case 'fractal':
+    case 'lighting':
+    case 'compute':
+      return <ShaderScene phase={phase} pressureLevel={pressureLevel} />;
     default: return <IdleScene />;
   }
 }
@@ -455,8 +420,8 @@ function Scene({ bloomIntensity }: { bloomIntensity: number }) {
         <EffectComposer>
           <Bloom
             intensity={bloomIntensity}
-            luminanceThreshold={0.2}
-            luminanceSmoothing={0.9}
+            luminanceThreshold={0.4}
+            luminanceSmoothing={0.85}
             mipmapBlur
           />
         </EffectComposer>
@@ -474,16 +439,15 @@ export function Canvas3D() {
   return (
     <div className="absolute inset-0 z-0">
       <Canvas
-        camera={{ position: [0, 0, 20], fov: 60 }}
+        camera={{ position: [0, 0, 5], fov: 60 }}
         gl={{
-          antialias: true,
-          alpha: true,
+          antialias: false,
+          alpha: false,
           powerPreference: 'high-performance',
           stencil: false,
-          depth: true,
+          depth: false,
         }}
         dpr={[1, 2]}
-        shadows
       >
         <Scene bloomIntensity={bloomIntensity} />
       </Canvas>

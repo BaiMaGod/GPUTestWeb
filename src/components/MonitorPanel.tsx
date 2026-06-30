@@ -141,7 +141,7 @@ export function MonitorPanel() {
                 <span className="font-mono font-semibold">{gpuInfo.driver}</span>
               </div>
               <div className="flex items-center justify-between p-4 bg-deep-black/50 rounded-xl">
-                <span className="text-text-secondary">当前占用</span>
+                <span className="text-text-secondary">当前占用 <span className="text-xs text-text-muted">(估算)</span></span>
                 <span className={`font-mono font-bold ${gpuUsage > 80 ? 'text-perf-red' : gpuUsage > 50 ? 'text-perf-amber' : 'text-perf-green'}`}>
                   {gpuUsage}%
                 </span>

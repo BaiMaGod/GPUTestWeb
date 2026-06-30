@@ -2,37 +2,36 @@ import { create } from 'zustand';
 
 export type TestStatus = 'idle' | 'running' | 'completed';
 export type PerformanceRating = 'flagship' | 'mainstream' | 'entry' | null;
-export type TestPhase = 'idle' | 'warmup' | 'particles' | 'lighting' | 'physics' | 'materials';
+export type TestPhase = 'idle' | 'warmup' | 'raymarch' | 'fractal' | 'lighting' | 'compute';
 export type PressureLevel = 'low' | 'medium' | 'high' | 'extreme';
 
 export const PRESSURE_LEVEL_CONFIG: Record<PressureLevel, {
-  particleCount: number;
-  meshCount: number;
-  sphereCount: number;
-  cubeCount: number;
+  maxIterations: number;
+  stepScale: number;
+  lightCount: number;
+  resolutionScale: number;
   phaseDuration: number;
   label: string;
-  shadowQuality: number;
   bloomIntensity: number;
 }> = {
-  low: { particleCount: 50000, meshCount: 100, sphereCount: 50, cubeCount: 80, phaseDuration: 4000, label: '低', shadowQuality: 512, bloomIntensity: 0.3 },
-  medium: { particleCount: 150000, meshCount: 250, sphereCount: 120, cubeCount: 200, phaseDuration: 5000, label: '中', shadowQuality: 1024, bloomIntensity: 0.6 },
-  high: { particleCount: 400000, meshCount: 500, sphereCount: 250, cubeCount: 400, phaseDuration: 6000, label: '高', shadowQuality: 2048, bloomIntensity: 1.0 },
-  extreme: { particleCount: 800000, meshCount: 1000, sphereCount: 500, cubeCount: 700, phaseDuration: 7000, label: '极高', shadowQuality: 2048, bloomIntensity: 1.5 },
+  low: { maxIterations: 64, stepScale: 0.8, lightCount: 1, resolutionScale: 0.5, phaseDuration: 4000, label: '低', bloomIntensity: 0.3 },
+  medium: { maxIterations: 128, stepScale: 1.0, lightCount: 2, resolutionScale: 0.75, phaseDuration: 5000, label: '中', bloomIntensity: 0.6 },
+  high: { maxIterations: 192, stepScale: 1.2, lightCount: 3, resolutionScale: 1.0, phaseDuration: 6000, label: '高', bloomIntensity: 1.0 },
+  extreme: { maxIterations: 256, stepScale: 1.5, lightCount: 4, resolutionScale: 1.0, phaseDuration: 7000, label: '极高', bloomIntensity: 1.5 },
 };
 
 export function getPressureLevelFromFPS(avgFPS: number): PressureLevel {
   if (avgFPS >= 55) return 'extreme';
-  if (avgFPS >= 45) return 'high';
-  if (avgFPS >= 30) return 'medium';
+  if (avgFPS >= 40) return 'high';
+  if (avgFPS >= 25) return 'medium';
   return 'low';
 }
 
 export const SUB_TEST_CONFIG_BASE = [
-  { name: '粒子系统', phase: 'particles' as TestPhase, weight: 1.0 },
-  { name: '光照渲染', phase: 'lighting' as TestPhase, weight: 1.2 },
-  { name: '物理模拟', phase: 'physics' as TestPhase, weight: 1.1 },
-  { name: '材质计算', phase: 'materials' as TestPhase, weight: 1.3 },
+  { name: '光线步进', phase: 'raymarch' as TestPhase, weight: 1.0 },
+  { name: '分形几何', phase: 'fractal' as TestPhase, weight: 1.2 },
+  { name: '全局光照', phase: 'lighting' as TestPhase, weight: 1.3 },
+  { name: '计算密度', phase: 'compute' as TestPhase, weight: 1.5 },
 ];
 
 export interface SubTestResult {
