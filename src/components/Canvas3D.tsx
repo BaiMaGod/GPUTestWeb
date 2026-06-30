@@ -1,9 +1,9 @@
-import { useRef, useMemo, useEffect } from 'react';
-import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { useRef, useMemo } from 'react';
+import { Canvas, useFrame } from '@react-three/fiber';
 import { Points, PointMaterial } from '@react-three/drei';
 import * as THREE from 'three';
-import { useTestStore } from '@/store/testStore';
-import type { TestPhase } from '@/store/testStore';
+import { useTestStore, PRESSURE_LEVEL_CONFIG } from '@/store/testStore';
+import type { TestPhase, PressureLevel } from '@/store/testStore';
 
 function FPSMonitor() {
   const frameCountRef = useRef(0);
@@ -31,9 +31,8 @@ function FPSMonitor() {
   return null;
 }
 
-function ParticlePhase() {
+function ParticlePhase({ particleCount }: { particleCount: number }) {
   const meshRef = useRef<THREE.Points>(null);
-  const particleCount = 15000;
 
   const particles = useMemo(() => {
     const positions = new Float32Array(particleCount * 3);
@@ -66,7 +65,7 @@ function ParticlePhase() {
     }
 
     return { positions, colors };
-  }, []);
+  }, [particleCount]);
 
   useFrame((state) => {
     if (meshRef.current) {
@@ -89,9 +88,8 @@ function ParticlePhase() {
   );
 }
 
-function LightingPhase() {
+function LightingPhase({ meshCount }: { meshCount: number }) {
   const groupRef = useRef<THREE.Group>(null);
-  const meshCount = 50;
 
   const meshes = useMemo(() => {
     const result: { pos: [number, number, number]; scale: number; geoType: number }[] = [];
@@ -107,7 +105,7 @@ function LightingPhase() {
       });
     }
     return result;
-  }, []);
+  }, [meshCount]);
 
   useFrame((state) => {
     if (groupRef.current) {
@@ -116,11 +114,13 @@ function LightingPhase() {
     }
   });
 
+  const lightCount = Math.min(8, 2 + Math.floor(meshCount / 25));
+
   return (
     <group ref={groupRef}>
       {meshes.map((m, i) => (
         <mesh key={i} position={m.pos} scale={m.scale}>
-          {m.geoType === 0 && <torusKnotGeometry args={[0.5, 0.18, 64, 16]} />}
+          {m.geoType === 0 && <torusKnotGeometry args={[0.5, 0.18, 48, 12]} />}
           {m.geoType === 1 && <icosahedronGeometry args={[0.6, 1]} />}
           {m.geoType === 2 && <octahedronGeometry args={[0.7, 0]} />}
           <meshStandardMaterial
@@ -131,23 +131,33 @@ function LightingPhase() {
           />
         </mesh>
       ))}
-      <pointLight position={[5, 5, 5]} intensity={2} color="#3B82F6" distance={30} decay={1.5} />
-      <pointLight position={[-5, -3, 3]} intensity={1.5} color="#8B5CF6" distance={25} decay={1.5} />
-      <pointLight position={[0, -5, -5]} intensity={1.2} color="#10B981" distance={25} decay={1.5} />
-      <pointLight position={[-3, 4, -4]} intensity={1} color="#F59E0B" distance={20} decay={1.5} />
+      {Array.from({ length: lightCount }).map((_, i) => {
+        const angle = (i / lightCount) * Math.PI * 2;
+        const hue = i / lightCount;
+        return (
+          <pointLight
+            key={i}
+            position={[Math.cos(angle) * 8, Math.sin(i * 1.7) * 6, Math.sin(angle) * 8]}
+            intensity={1.5 + Math.random()}
+            color={new THREE.Color().setHSL(hue, 0.8, 0.6)}
+            distance={25}
+            decay={1.5}
+          />
+        );
+      })}
       <ambientLight intensity={0.2} />
     </group>
   );
 }
 
-function PhysicsPhase() {
+function PhysicsPhase({ cubeCount }: { cubeCount: number }) {
   const groupRef = useRef<THREE.Group>(null);
   const meshRefs = useRef<THREE.Mesh[]>([]);
   const velocities = useRef<{ vx: number; vy: number; vz: number; rx: number; ry: number; rz: number }[]>([]);
-  const cubeCount = 80;
   const bounds = 8;
 
   const cubes = useMemo(() => {
+    velocities.current = [];
     const result: { pos: [number, number, number]; size: number }[] = [];
     for (let i = 0; i < cubeCount; i++) {
       result.push({
@@ -168,7 +178,7 @@ function PhysicsPhase() {
       });
     }
     return result;
-  }, []);
+  }, [cubeCount]);
 
   useFrame(() => {
     cubes.forEach((_, i) => {
@@ -213,9 +223,8 @@ function PhysicsPhase() {
   );
 }
 
-function MaterialsPhase() {
+function MaterialsPhase({ sphereCount }: { sphereCount: number }) {
   const groupRef = useRef<THREE.Group>(null);
-  const sphereCount = 30;
 
   const spheres = useMemo(() => {
     const result: { pos: [number, number, number]; scale: number; hue: number }[] = [];
@@ -233,13 +242,15 @@ function MaterialsPhase() {
       });
     }
     return result;
-  }, []);
+  }, [sphereCount]);
 
   useFrame((state) => {
     if (groupRef.current) {
       groupRef.current.rotation.y = state.clock.elapsedTime * 0.2;
     }
   });
+
+  const matSegments = sphereCount > 50 ? 48 : 64;
 
   return (
     <group ref={groupRef}>
@@ -248,9 +259,15 @@ function MaterialsPhase() {
       <pointLight position={[-5, 0, 5]} intensity={2} color="#3B82F6" distance={25} decay={1.5} />
       <pointLight position={[5, 0, -5]} intensity={2} color="#8B5CF6" distance={25} decay={1.5} />
       <pointLight position={[0, -3, 0]} intensity={1.5} color="#10B981" distance={20} decay={1.5} />
+      {sphereCount > 40 && (
+        <>
+          <pointLight position={[3, 2, 3]} intensity={1.2} color="#F59E0B" distance={18} decay={1.5} />
+          <pointLight position={[-3, -2, -3]} intensity={1.2} color="#EC4899" distance={18} decay={1.5} />
+        </>
+      )}
       {spheres.map((s, i) => (
         <mesh key={i} position={s.pos} scale={s.scale}>
-          <sphereGeometry args={[0.8, 64, 64]} />
+          <sphereGeometry args={[0.8, matSegments, matSegments]} />
           <meshPhysicalMaterial
             color={new THREE.Color().setHSL(s.hue, 0.85, 0.5)}
             metalness={0.3}
@@ -265,6 +282,49 @@ function MaterialsPhase() {
         </mesh>
       ))}
     </group>
+  );
+}
+
+function WarmupPhase({ particleCount }: { particleCount: number }) {
+  const meshRef = useRef<THREE.Points>(null);
+
+  const particles = useMemo(() => {
+    const positions = new Float32Array(particleCount * 3);
+    const colors = new Float32Array(particleCount * 3);
+
+    for (let i = 0; i < particleCount; i++) {
+      const i3 = i * 3;
+      const radius = Math.random() * 10 + 2;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+
+      positions[i3] = radius * Math.sin(phi) * Math.cos(theta);
+      positions[i3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
+      positions[i3 + 2] = radius * Math.cos(phi);
+
+      const colorChoice = Math.random();
+      if (colorChoice < 0.33) {
+        colors[i3] = 0.23; colors[i3 + 1] = 0.51; colors[i3 + 2] = 0.96;
+      } else if (colorChoice < 0.66) {
+        colors[i3] = 0.55; colors[i3 + 1] = 0.36; colors[i3 + 2] = 0.96;
+      } else {
+        colors[i3] = 0.06; colors[i3 + 1] = 0.73; colors[i3 + 2] = 0.51;
+      }
+    }
+    return { positions, colors };
+  }, [particleCount]);
+
+  useFrame((state) => {
+    if (meshRef.current) {
+      meshRef.current.rotation.y += 0.003;
+      meshRef.current.rotation.x = Math.sin(state.clock.elapsedTime * 0.4) * 0.4;
+    }
+  });
+
+  return (
+    <Points ref={meshRef} positions={particles.positions} colors={particles.colors} stride={3} frustumCulled={false}>
+      <PointMaterial transparent vertexColors size={0.06} sizeAttenuation depthWrite={false} blending={THREE.AdditiveBlending} />
+    </Points>
   );
 }
 
@@ -326,22 +386,27 @@ function IdleScene() {
   );
 }
 
-function PhaseContent({ phase }: { phase: TestPhase }) {
+function PhaseContent({ phase, pressureLevel }: { phase: TestPhase; pressureLevel: PressureLevel }) {
+  const cfg = PRESSURE_LEVEL_CONFIG[pressureLevel];
+  const warmupCount = Math.floor(cfg.particleCount * 0.6);
+
   switch (phase) {
-    case 'particles': return <ParticlePhase />;
-    case 'lighting': return <LightingPhase />;
-    case 'physics': return <PhysicsPhase />;
-    case 'materials': return <MaterialsPhase />;
+    case 'warmup': return <WarmupPhase particleCount={warmupCount} />;
+    case 'particles': return <ParticlePhase particleCount={cfg.particleCount} />;
+    case 'lighting': return <LightingPhase meshCount={cfg.meshCount} />;
+    case 'physics': return <PhysicsPhase cubeCount={cfg.cubeCount} />;
+    case 'materials': return <MaterialsPhase sphereCount={cfg.sphereCount} />;
     default: return <IdleScene />;
   }
 }
 
 function Scene() {
   const currentTestPhase = useTestStore((s) => s.currentTestPhase);
+  const pressureLevel = useTestStore((s) => s.pressureLevel);
 
   return (
     <>
-      <PhaseContent phase={currentTestPhase} />
+      <PhaseContent phase={currentTestPhase} pressureLevel={pressureLevel} />
       <FPSMonitor />
     </>
   );

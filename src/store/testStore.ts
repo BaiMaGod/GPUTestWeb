@@ -2,13 +2,35 @@ import { create } from 'zustand';
 
 export type TestStatus = 'idle' | 'running' | 'completed';
 export type PerformanceRating = 'flagship' | 'mainstream' | 'entry' | null;
-export type TestPhase = 'idle' | 'particles' | 'lighting' | 'physics' | 'materials';
+export type TestPhase = 'idle' | 'warmup' | 'particles' | 'lighting' | 'physics' | 'materials';
+export type PressureLevel = 'low' | 'medium' | 'high' | 'extreme';
 
-export const SUB_TEST_CONFIG = [
-  { name: '粒子系统', phase: 'particles' as TestPhase, duration: 4000, weight: 1.0 },
-  { name: '光照渲染', phase: 'lighting' as TestPhase, duration: 4000, weight: 1.2 },
-  { name: '物理模拟', phase: 'physics' as TestPhase, duration: 4000, weight: 1.1 },
-  { name: '材质计算', phase: 'materials' as TestPhase, duration: 4000, weight: 1.3 },
+export const PRESSURE_LEVEL_CONFIG: Record<PressureLevel, {
+  particleCount: number;
+  meshCount: number;
+  sphereCount: number;
+  cubeCount: number;
+  phaseDuration: number;
+  label: string;
+}> = {
+  low: { particleCount: 5000, meshCount: 20, sphereCount: 12, cubeCount: 30, phaseDuration: 3000, label: '低' },
+  medium: { particleCount: 15000, meshCount: 50, sphereCount: 30, cubeCount: 80, phaseDuration: 4000, label: '中' },
+  high: { particleCount: 30000, meshCount: 100, sphereCount: 60, cubeCount: 150, phaseDuration: 5000, label: '高' },
+  extreme: { particleCount: 60000, meshCount: 200, sphereCount: 100, cubeCount: 250, phaseDuration: 6000, label: '极高' },
+};
+
+export function getPressureLevelFromFPS(avgFPS: number): PressureLevel {
+  if (avgFPS >= 140) return 'extreme';
+  if (avgFPS >= 80) return 'high';
+  if (avgFPS >= 40) return 'medium';
+  return 'low';
+}
+
+export const SUB_TEST_CONFIG_BASE = [
+  { name: '粒子系统', phase: 'particles' as TestPhase, weight: 1.0 },
+  { name: '光照渲染', phase: 'lighting' as TestPhase, weight: 1.2 },
+  { name: '物理模拟', phase: 'physics' as TestPhase, weight: 1.1 },
+  { name: '材质计算', phase: 'materials' as TestPhase, weight: 1.3 },
 ];
 
 export interface SubTestResult {
@@ -373,6 +395,7 @@ function getGPUDriver(gpuName: string, rawRenderer: string, rawVendor: string): 
 interface TestState {
   status: TestStatus;
   currentTestPhase: TestPhase;
+  pressureLevel: PressureLevel;
   currentFPS: number;
   gpuUsage: number;
   fpsHistory: number[];
@@ -385,6 +408,7 @@ interface TestState {
   initializeGPUInfo: () => void;
   setStatus: (status: TestStatus) => void;
   setCurrentTestPhase: (phase: TestPhase) => void;
+  setPressureLevel: (level: PressureLevel) => void;
   setCurrentFPS: (fps: number) => void;
   setGpuUsage: (usage: number) => void;
   addFPSRecord: (fps: number) => void;
@@ -398,6 +422,7 @@ const initialGPUInfo = getWebGLGPUInfo();
 const initialState = {
   status: 'idle' as TestStatus,
   currentTestPhase: 'idle' as TestPhase,
+  pressureLevel: 'medium' as PressureLevel,
   currentFPS: 0,
   gpuUsage: 0,
   fpsHistory: [] as number[],
@@ -420,12 +445,14 @@ export const useTestStore = create<TestState>((set) => ({
 
   setCurrentTestPhase: (phase) => set({ currentTestPhase: phase }),
 
+  setPressureLevel: (level) => set({ pressureLevel: level }),
+
   setCurrentFPS: (fps) => set({ currentFPS: fps }),
 
   setGpuUsage: (usage) => set({ gpuUsage: usage }),
 
   addFPSRecord: (fps) => set((state) => ({
-    fpsHistory: [...state.fpsHistory.slice(-599), fps],
+    fpsHistory: [...state.fpsHistory.slice(-999), fps],
   })),
 
   setRemainingTime: (time) => set({ remainingTime: time }),
