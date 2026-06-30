@@ -2,6 +2,14 @@ import { create } from 'zustand';
 
 export type TestStatus = 'idle' | 'running' | 'completed';
 export type PerformanceRating = 'flagship' | 'mainstream' | 'entry' | null;
+export type TestPhase = 'idle' | 'particles' | 'lighting' | 'physics' | 'materials';
+
+export const SUB_TEST_CONFIG = [
+  { name: '粒子系统', phase: 'particles' as TestPhase, duration: 4000, weight: 1.0 },
+  { name: '光照渲染', phase: 'lighting' as TestPhase, duration: 4000, weight: 1.2 },
+  { name: '物理模拟', phase: 'physics' as TestPhase, duration: 4000, weight: 1.1 },
+  { name: '材质计算', phase: 'materials' as TestPhase, duration: 4000, weight: 1.3 },
+];
 
 export interface SubTestResult {
   name: string;
@@ -364,6 +372,7 @@ function getGPUDriver(gpuName: string, rawRenderer: string, rawVendor: string): 
 
 interface TestState {
   status: TestStatus;
+  currentTestPhase: TestPhase;
   currentFPS: number;
   gpuUsage: number;
   fpsHistory: number[];
@@ -375,6 +384,7 @@ interface TestState {
 
   initializeGPUInfo: () => void;
   setStatus: (status: TestStatus) => void;
+  setCurrentTestPhase: (phase: TestPhase) => void;
   setCurrentFPS: (fps: number) => void;
   setGpuUsage: (usage: number) => void;
   addFPSRecord: (fps: number) => void;
@@ -387,6 +397,7 @@ const initialGPUInfo = getWebGLGPUInfo();
 
 const initialState = {
   status: 'idle' as TestStatus,
+  currentTestPhase: 'idle' as TestPhase,
   currentFPS: 0,
   gpuUsage: 0,
   fpsHistory: [] as number[],
@@ -407,12 +418,14 @@ export const useTestStore = create<TestState>((set) => ({
 
   setStatus: (status) => set({ status }),
 
+  setCurrentTestPhase: (phase) => set({ currentTestPhase: phase }),
+
   setCurrentFPS: (fps) => set({ currentFPS: fps }),
 
   setGpuUsage: (usage) => set({ gpuUsage: usage }),
 
   addFPSRecord: (fps) => set((state) => ({
-    fpsHistory: [...state.fpsHistory.slice(-299), fps],
+    fpsHistory: [...state.fpsHistory.slice(-599), fps],
   })),
 
   setRemainingTime: (time) => set({ remainingTime: time }),
@@ -422,6 +435,7 @@ export const useTestStore = create<TestState>((set) => ({
     finalScore: result.overallScore,
     rating: result.rating,
     status: 'completed',
+    currentTestPhase: 'idle',
   }),
 
   reset: () => set({ ...initialState, gpuInfo: getWebGLGPUInfo() }),

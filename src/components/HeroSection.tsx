@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Play, Loader2, Cpu, Gauge } from 'lucide-react';
 import { SafeCanvas3D } from './SafeCanvas3D';
-import { useTestStore, type PerformanceRating } from '@/store/testStore';
+import { useTestStore, type PerformanceRating, SUB_TEST_CONFIG } from '@/store/testStore';
 
 export function HeroSection() {
   const {
@@ -11,17 +11,20 @@ export function HeroSection() {
     gpuUsage,
     remainingTime,
     setStatus,
-    setCurrentFPS,
+    setCurrentTestPhase,
     setGpuUsage,
-    addFPSRecord,
     setRemainingTime,
     setTestResult,
     rating,
+    fpsHistory,
   } = useTestStore();
 
   const animationRef = useRef<number | null>(null);
-  const fpsHistoryRef = useRef<number[]>([]);
   const hasStartedRef = useRef(false);
+  const phaseFPSRecordsRef = useRef<number[][]>([]);
+  const currentPhaseRef = useRef(0);
+  const phaseStartTimeRef = useRef(0);
+  const totalStartTimeRef = useRef(0);
 
   const getFPSColor = (fps: number) => {
     if (fps >= 55) return 'text-perf-green';
@@ -42,6 +45,93 @@ export function HeroSection() {
     }
   };
 
+  const calculateRating = (weightedAvgFPS: number): { rating: PerformanceRating; score: number } => {
+    let r: PerformanceRating;
+    let overallScore: number;
+
+    if (weightedAvgFPS >= 90) {
+      r = 'flagship';
+      overallScore = Math.round(12000 + (weightedAvgFPS - 90) * 120);
+    } else if (weightedAvgFPS >= 50) {
+      r = 'mainstream';
+      overallScore = Math.round(6000 + (weightedAvgFPS - 50) * 150);
+    } else {
+      r = 'entry';
+      overallScore = Math.round(1000 + weightedAvgFPS * 100);
+    }
+
+    return { rating: r, score: overallScore };
+  };
+
+  const finishBenchmark = () => {
+    const subTestResults = SUB_TEST_CONFIG.map((test, index) => {
+      const records = phaseFPSRecordsRef.current[index] || [];
+      const avg = records.length > 0
+        ? Math.round(records.reduce((a, b) => a + b, 0) / records.length)
+        : 30;
+      return {
+        name: test.name,
+        fps: avg,
+        score: Math.round(avg * 100 * test.weight),
+      };
+    });
+
+    const totalWeight = SUB_TEST_CONFIG.reduce((sum, t) => sum + t.weight, 0);
+    const weightedAvgFPS = subTestResults.reduce((sum, r, i) => sum + r.fps * SUB_TEST_CONFIG[i].weight, 0) / totalWeight;
+
+    const { rating: r, score: overallScore } = calculateRating(weightedAvgFPS);
+
+    const gpuInfo = useTestStore.getState().gpuInfo;
+    setTestResult({
+      overallScore,
+      rating: r,
+      subTests: subTestResults,
+      gpuInfo,
+    });
+  };
+
+  const updateTest = () => {
+    const currentTime = performance.now();
+    const currentPhaseIdx = currentPhaseRef.current;
+    const testConfig = SUB_TEST_CONFIG[currentPhaseIdx];
+
+    if (!testConfig) {
+      finishBenchmark();
+      return;
+    }
+
+    const phaseElapsed = currentTime - phaseStartTimeRef.current;
+    const totalElapsed = currentTime - totalStartTimeRef.current;
+
+    if (phaseElapsed >= testConfig.duration) {
+      currentPhaseRef.current++;
+      phaseStartTimeRef.current = currentTime;
+
+      if (currentPhaseRef.current < SUB_TEST_CONFIG.length) {
+        setCurrentTestPhase(SUB_TEST_CONFIG[currentPhaseRef.current].phase);
+        phaseFPSRecordsRef.current[currentPhaseRef.current] = [];
+      } else {
+        finishBenchmark();
+        return;
+      }
+    }
+
+    const totalDuration = SUB_TEST_CONFIG.reduce((sum, t) => sum + t.duration, 0);
+    const remaining = Math.max(0, totalDuration - totalElapsed);
+    setRemainingTime(Math.ceil(remaining / 1000));
+
+    const currentFPSVal = useTestStore.getState().currentFPS;
+    if (currentFPSVal > 0 && phaseFPSRecordsRef.current[currentPhaseIdx]) {
+      phaseFPSRecordsRef.current[currentPhaseIdx].push(currentFPSVal);
+    }
+
+    const targetUsage = 50 + currentFPSVal * 0.5;
+    const usage = Math.min(100, Math.max(20, targetUsage + (Math.random() - 0.5) * 10));
+    setGpuUsage(Math.round(usage));
+
+    animationRef.current = requestAnimationFrame(updateTest);
+  };
+
   useEffect(() => {
     if (status !== 'running') {
       hasStartedRef.current = false;
@@ -51,105 +141,22 @@ export function HeroSection() {
     if (hasStartedRef.current) return;
     hasStartedRef.current = true;
 
-    fpsHistoryRef.current = [];
+    phaseFPSRecordsRef.current = [];
+    currentPhaseRef.current = 0;
+    phaseStartTimeRef.current = performance.now();
+    totalStartTimeRef.current = performance.now();
 
-    const totalDuration = 15000;
-    const startTime = Date.now();
+    setCurrentTestPhase(SUB_TEST_CONFIG[0].phase);
+    phaseFPSRecordsRef.current[0] = [];
 
-    const subTests = [
-      { name: '粒子系统', baseFPS: 120, duration: 3000 },
-      { name: '光照渲染', baseFPS: 90, duration: 3000 },
-      { name: '物理模拟', baseFPS: 100, duration: 3000 },
-      { name: '材质计算', baseFPS: 110, duration: 3000 },
-    ];
-
-    let currentSubTestIndex = 0;
-    let subTestStartTime = startTime;
-
-    const finishBenchmark = () => {
-      const history = fpsHistoryRef.current;
-      const avgFPS = history.length > 0
-        ? history.reduce((a, b) => a + b, 0) / history.length
-        : 60;
-
-      let r: PerformanceRating;
-      let overallScore: number;
-
-      if (avgFPS >= 100) {
-        r = 'flagship';
-        overallScore = Math.round(15000 + (avgFPS - 100) * 50);
-      } else if (avgFPS >= 60) {
-        r = 'mainstream';
-        overallScore = Math.round(10000 + (avgFPS - 60) * 125);
-      } else {
-        r = 'entry';
-        overallScore = Math.round(5000 + avgFPS * 83);
-      }
-
-      const chunkSize = Math.floor(history.length / subTests.length);
-      const subTestResults = subTests.map((test, index) => {
-        const chunk = history.slice(index * chunkSize, (index + 1) * chunkSize);
-        const avg = chunk.length > 0
-          ? Math.round(chunk.reduce((a, b) => a + b, 0) / chunk.length)
-          : test.baseFPS;
-        return {
-          name: test.name,
-          fps: avg,
-          score: Math.round(avg * 100),
-        };
-      });
-
-      const gpuInfo = useTestStore.getState().gpuInfo;
-      setTestResult({
-        overallScore,
-        rating: r,
-        subTests: subTestResults,
-        gpuInfo,
-      });
-    };
-
-    const simulateFrame = () => {
-      const currentTime = Date.now();
-      const elapsed = currentTime - startTime;
-      const subTestElapsed = currentTime - subTestStartTime;
-
-      if (subTestElapsed > subTests[currentSubTestIndex].duration) {
-        currentSubTestIndex++;
-        subTestStartTime = currentTime;
-      }
-
-      if (currentSubTestIndex >= subTests.length) {
-        currentSubTestIndex = subTests.length - 1;
-      }
-
-      const baseFPS = subTests[currentSubTestIndex].baseFPS;
-      const variance = Math.random() * 40 - 20;
-      const fps = Math.max(20, Math.min(180, baseFPS + variance));
-      const usage = Math.min(100, Math.max(30, 70 + Math.random() * 30));
-
-      setCurrentFPS(Math.round(fps));
-      setGpuUsage(Math.round(usage));
-      addFPSRecord(Math.round(fps));
-      fpsHistoryRef.current.push(Math.round(fps));
-
-      const remaining = Math.max(0, totalDuration - elapsed);
-      setRemainingTime(Math.ceil(remaining / 1000));
-
-      if (elapsed < totalDuration) {
-        animationRef.current = requestAnimationFrame(simulateFrame);
-      } else {
-        finishBenchmark();
-      }
-    };
-
-    animationRef.current = requestAnimationFrame(simulateFrame);
+    animationRef.current = requestAnimationFrame(updateTest);
 
     return () => {
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current);
       }
     };
-  }, [status, setCurrentFPS, setGpuUsage, addFPSRecord, setRemainingTime, setTestResult]);
+  }, [status, setRemainingTime, setTestResult, setGpuUsage, setCurrentTestPhase]);
 
   const handleStartTest = () => {
     if (status === 'idle' || status === 'completed') {
@@ -270,7 +277,7 @@ export function HeroSection() {
           className="mt-8 flex items-center gap-2 text-text-secondary text-sm"
         >
           <Cpu className="w-4 h-4" />
-          <span>模拟真实游戏场景进行性能评估</span>
+          <span>真实 3D 渲染场景性能评估</span>
         </motion.div>
       </div>
     </section>
