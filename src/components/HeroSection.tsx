@@ -68,36 +68,22 @@ export function HeroSection() {
     return { name: '测试中', isWarmup: false };
   };
 
-  const calculateRating = (weightedAvgFPS: number, pressureLevel: PressureLevel): { rating: PerformanceRating; score: number } => {
-    const pressureMultiplier = {
-      low: 0.7,
-      medium: 1.0,
-      high: 1.4,
-      extreme: 2.0,
-    }[pressureLevel];
-
-    const adjustedFPS = weightedAvgFPS * pressureMultiplier;
-
+  const calculateRating = (totalScore: number): { rating: PerformanceRating; score: number } => {
     let r: PerformanceRating;
-    let overallScore: number;
 
-    if (adjustedFPS >= 120) {
+    if (totalScore >= 18000) {
       r = 'flagship';
-      overallScore = Math.round(12000 + (adjustedFPS - 120) * 100);
-    } else if (adjustedFPS >= 60) {
+    } else if (totalScore >= 8000) {
       r = 'mainstream';
-      overallScore = Math.round(5000 + (adjustedFPS - 60) * 116.7);
     } else {
       r = 'entry';
-      overallScore = Math.round(500 + adjustedFPS * 75);
     }
 
-    return { rating: r, score: Math.min(99999, overallScore) };
+    return { rating: r, score: totalScore };
   };
 
   const finishBenchmark = () => {
     const pressureLevel = pressureLevelRef.current;
-    const cfg = PRESSURE_LEVEL_CONFIG[pressureLevel];
 
     const subTestResults = SUB_TEST_CONFIG_BASE.map((test, index) => {
       const records = phaseFPSRecordsRef.current[index] || [];
@@ -111,10 +97,8 @@ export function HeroSection() {
       };
     });
 
-    const totalWeight = SUB_TEST_CONFIG_BASE.reduce((sum, t) => sum + t.weight, 0);
-    const weightedAvgFPS = subTestResults.reduce((sum, r, i) => sum + r.fps * SUB_TEST_CONFIG_BASE[i].weight, 0) / totalWeight;
-
-    const { rating: r, score: overallScore } = calculateRating(weightedAvgFPS, pressureLevel);
+    const overallScore = subTestResults.reduce((sum, r) => sum + r.score, 0);
+    const { rating: r } = calculateRating(overallScore);
 
     const gpuInfo = useTestStore.getState().gpuInfo;
     setTestResult({
