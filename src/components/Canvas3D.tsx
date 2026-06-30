@@ -2,8 +2,8 @@ import { useRef, useMemo } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
-import { useTestStore, PRESSURE_LEVEL_CONFIG } from '@/store/testStore';
-import type { TestPhase, PressureLevel } from '@/store/testStore';
+import { useTestStore, computeShaderParams } from '@/store/testStore';
+import type { TestPhase } from '@/store/testStore';
 
 const vertexShader = `
   varying vec2 vUv;
@@ -13,6 +13,7 @@ const vertexShader = `
   }
 `;
 
+// GLSL宏 - 预编译时设置，不依赖 uniform
 const fragmentShader = `
   precision highp float;
   uniform float uTime;
@@ -21,6 +22,11 @@ const fragmentShader = `
   uniform float uStepScale;
   uniform int uLightCount;
   uniform int uPhase;
+  uniform int uFbmOctaves;
+  uniform int uShadowSteps;
+  uniform int uAoSteps;
+  uniform int uVolumeFogSteps;
+  uniform bool uReflectionEnabled;
   varying vec2 vUv;
 
   #define MAX_STEPS 512
@@ -50,11 +56,12 @@ const fragmentShader = `
     return n;
   }
 
-  float fbm(vec3 p) {
+  float fbmCustom(vec3 p, int octaves) {
     float value = 0.0;
     float amplitude = 0.5;
     float frequency = 1.0;
-    for (int i = 0; i < 7; i++) {
+    for (int i = 0; i < 8; i++) {
+      if (i >= octaves) break;
       value += amplitude * noise(p * frequency);
       amplitude *= 0.5;
       frequency *= 2.03;
@@ -62,11 +69,12 @@ const fragmentShader = `
     return value;
   }
 
-  float turbulence(vec3 p) {
+  float turbulence(vec3 p, int octaves) {
     float value = 0.0;
     float amplitude = 0.5;
     float frequency = 1.0;
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < 8; i++) {
+      if (i >= octaves) break;
       value += amplitude * abs(noise(p * frequency) * 2.0 - 1.0);
       amplitude *= 0.5;
       frequency *= 2.0;
@@ -94,20 +102,16 @@ const fragmentShader = `
     float dr = 1.0;
     float r = 0.0;
     float power = 10.0;
-
     for (int i = 0; i < 128; i++) {
       if (i >= iterations) break;
       r = length(z);
       if (r > 2.5) break;
-
       float theta = acos(z.z / r);
       float phi = atan(z.y, z.x);
       dr = pow(r, power - 1.0) * power * dr + 1.0;
-
       float zr = pow(r, power);
       theta = theta * power;
       phi = phi * power;
-
       z = zr * vec3(sin(theta) * cos(phi), sin(phi) * sin(theta), cos(theta));
       z += pos;
     }
@@ -120,12 +124,9 @@ const fragmentShader = `
     float scale = 2.0;
     float minRadius = 0.5;
     float fixedRadius = 1.0;
-
     for (int i = 0; i < 128; i++) {
       if (i >= iterations) break;
-
       z = clamp(z, -1.0, 1.0) * 2.0 - z;
-
       float r2 = dot(z, z);
       if (r2 < minRadius) {
         float temp = fixedRadius / minRadius;
@@ -136,10 +137,8 @@ const fragmentShader = `
         z *= temp;
         dr *= temp;
       }
-
       z = z * scale + p;
       dr = dr * scale + 1.0;
-
       if (dot(z, z) > 100.0) break;
     }
     return length(z) / abs(dr);
@@ -153,37 +152,34 @@ const fragmentShader = `
       vec3 bp = p;
       bp.xy *= rot2(t * 0.25);
       bp.xz *= rot2(t * 0.15);
-      float sphere = sdSphere(bp, 2.0);
-      float torus = sdTorus(bp + vec3(0.0, 0.0, 0.0), vec2(3.5, 0.25));
-      float torus2 = sdTorus(bp.yxz + vec3(0.0, 0.0, 0.0), vec2(3.0, 0.2));
-      float sphere2 = sdSphere(bp + vec3(0.0, 3.0, 0.0), 1.0);
-      float sphere3 = sdSphere(bp - vec3(0.0, 3.0, 0.0), 1.0);
-      result = min(sphere, min(torus, min(torus2, min(sphere2, sphere3))));
+      result = sdSphere(bp, 2.0);
+      result = min(result, sdTorus(bp, vec2(3.5, 0.25)));
+      result = min(result, sdTorus(bp.yxz, vec2(3.0, 0.2)));
+      result = min(result, sdSphere(bp + vec3(0.0, 3.0, 0.0), 1.0));
+      result = min(result, sdSphere(bp - vec3(0.0, 3.0, 0.0), 1.0));
 
-      for (int i = 0; i < 12; i++) {
+      for (int i = 0; i < 16; i++) {
         float fi = float(i);
-        float angle = fi * PI * 2.0 / 12.0 + t * 0.5;
+        float angle = fi * PI * 2.0 / 16.0 + t * 0.5;
         vec3 sp = vec3(cos(angle) * 5.0, sin(fi * 1.5 + t) * 2.0, sin(angle) * 5.0);
         result = min(result, sdSphere(bp + sp, 0.4 + sin(fi + t) * 0.1));
       }
 
-      float noiseVal = fbm(p * 0.8 + t * 0.3) * 0.5;
+      float noiseVal = fbmCustom(p * 0.8 + t * 0.3, uFbmOctaves) * 0.5;
       result += noiseVal * 0.3;
     }
     else if (uPhase == 1) {
       vec3 mp = p * 0.55;
       mp.xy *= rot2(t * 0.15);
       mp.xz *= rot2(t * 0.1);
-
       float mb = mandelbulb(mp, uMaxIterations) * 1.8;
-      float noiseVal = turbulence(p * 1.2 + t * 0.2) * 0.4;
-      float fbmVal = fbm(p * 0.6 + t * 0.15) * 0.3;
-
+      float noiseVal = turbulence(p * 1.2 + t * 0.2, uFbmOctaves) * 0.4;
+      float fbmVal = fbmCustom(p * 0.6 + t * 0.15, uFbmOctaves) * 0.3;
       result = mb + noiseVal * 0.4 + fbmVal * 0.2;
 
-      for (int i = 0; i < 8; i++) {
+      for (int i = 0; i < 12; i++) {
         float fi = float(i);
-        float angle = fi * PI * 2.0 / 8.0 + t * 0.3;
+        float angle = fi * PI * 2.0 / 12.0 + t * 0.3;
         float rad = 4.0 + sin(fi * 2.0 + t) * 1.0;
         vec3 tp = vec3(cos(angle) * rad, sin(fi * 1.3 + t * 0.7) * 2.5, sin(angle) * rad);
         vec3 trp = p - tp;
@@ -195,45 +191,40 @@ const fragmentShader = `
       vec3 mp = p * 0.45;
       mp.xy *= rot2(t * 0.1);
       mp.xz *= rot2(t * 0.08);
-
       float mb = mandelbulb(mp, max(32, uMaxIterations / 2)) * 2.2;
-      float mb2 = mandelbox(mp * 1.5 + vec3(0.0, 0.0, 0.0), max(24, uMaxIterations / 4)) * 1.5;
-      float noiseVal = turbulence(p * 1.5 + t * 0.25) * 0.5;
-      float fbmVal = fbm(p * 0.8 + t * 0.1) * 0.4;
-
+      float mb2 = mandelbox(mp * 1.5, max(24, uMaxIterations / 4)) * 1.5;
+      float noiseVal = turbulence(p * 1.5 + t * 0.25, uFbmOctaves) * 0.5;
+      float fbmVal = fbmCustom(p * 0.8 + t * 0.1, uFbmOctaves) * 0.4;
       result = min(mb + noiseVal * 0.3, mb2 + fbmVal * 0.2);
 
-      for (int i = 0; i < 16; i++) {
+      for (int i = 0; i < 20; i++) {
         float fi = float(i);
-        float angle = fi * PI * 2.0 / 16.0 + t * 0.4;
+        float angle = fi * PI * 2.0 / 20.0 + t * 0.4;
         float rad = 5.5 + sin(fi * 2.5 + t * 1.5) * 1.5;
         vec3 sp = vec3(cos(angle) * rad, sin(fi * 1.7 + t) * 3.0, sin(angle) * rad);
         result = min(result, sdSphere(p - sp, 0.35 + sin(fi * 3.0 + t * 2.0) * 0.1));
       }
 
-      float capsule1 = sdCapsule(p, vec3(-6.0, 0.0, 0.0), vec3(6.0, 0.0, 0.0), 0.15);
-      float capsule2 = sdCapsule(p, vec3(0.0, -6.0, 0.0), vec3(0.0, 6.0, 0.0), 0.15);
-      result = min(result, min(capsule1, capsule2));
+      result = min(result, sdCapsule(p, vec3(-6.0, 0.0, 0.0), vec3(6.0, 0.0, 0.0), 0.15));
+      result = min(result, sdCapsule(p, vec3(0.0, -6.0, 0.0), vec3(0.0, 6.0, 0.0), 0.15));
     }
     else {
       vec3 mp = p * 0.4;
       mp.xy *= rot2(t * 0.08);
       mp.xz *= rot2(t * 0.06);
       mp.yz *= rot2(t * 0.04);
-
       float mb = mandelbulb(mp, uMaxIterations) * 2.5;
       float mb2 = mandelbox(mp * 1.3 + vec3(0.5, -0.3, 0.2), max(48, uMaxIterations / 2)) * 1.8;
-      float turbVal = turbulence(p * 2.0 + t * 0.3) * 0.6;
-      float fbmVal = fbm(p * 1.0 + t * 0.2) * 0.5;
+      float turbVal = turbulence(p * 2.0 + t * 0.3, uFbmOctaves) * 0.6;
+      float fbmVal = fbmCustom(p * 1.0 + t * 0.2, uFbmOctaves) * 0.5;
       float noiseVal = noise(p * 3.0 + t * 0.5) * 0.3;
-
       result = mb + turbVal * 0.35 + fbmVal * 0.25 + noiseVal * 0.15;
       result = min(result, mb2 + fbmVal * 0.3);
 
-      for (int i = 0; i < 24; i++) {
+      for (int i = 0; i < 28; i++) {
         float fi = float(i);
-        float angle1 = fi * PI * 2.0 / 24.0 + t * 0.5;
-        float angle2 = fi * PI * 3.0 / 24.0 + t * 0.3;
+        float angle1 = fi * PI * 2.0 / 28.0 + t * 0.5;
+        float angle2 = fi * PI * 3.0 / 28.0 + t * 0.3;
         float rad = 6.0 + sin(fi * 1.8 + t * 1.2) * 2.0;
         float rad2 = 4.0 + cos(fi * 2.2 + t * 0.8) * 1.5;
         vec3 sp = vec3(cos(angle1) * rad, sin(angle2) * rad2, sin(angle1) * rad);
@@ -243,9 +234,9 @@ const fragmentShader = `
         result = min(result, sdTorus(tsp, vec2(0.6, 0.1)));
       }
 
-      for (int i = 0; i < 12; i++) {
+      for (int i = 0; i < 16; i++) {
         float fi = float(i);
-        float angle = fi * PI * 2.0 / 12.0 + t * 0.2;
+        float angle = fi * PI * 2.0 / 16.0 + t * 0.2;
         vec3 sp = vec3(cos(angle) * 8.0, sin(fi + t * 0.5) * 4.0, sin(angle) * 8.0);
         result = min(result, sdSphere(p - sp, 0.5 + sin(fi * 2.0 + t) * 0.15));
       }
@@ -253,7 +244,6 @@ const fragmentShader = `
 
     float planeDist = p.y + 8.0;
     result = min(result, planeDist);
-
     return result;
   }
 
@@ -284,6 +274,7 @@ const fragmentShader = `
     float res = 1.0;
     float t = mint;
     for (int i = 0; i < 48; i++) {
+      if (i >= uShadowSteps) break;
       if (t >= maxt) break;
       float h = getDist(ro + rd * t);
       if (h < 0.0005) return 0.0;
@@ -296,7 +287,8 @@ const fragmentShader = `
   float ambientOcclusion(vec3 p, vec3 n) {
     float occ = 0.0;
     float sca = 1.0;
-    for (int i = 0; i < 8; i++) {
+    for (int i = 0; i < 12; i++) {
+      if (i >= uAoSteps) break;
       float h = 0.01 + 0.12 * float(i) / 7.0;
       float d = getDist(p + n * h);
       occ += (h - d) * sca;
@@ -316,7 +308,6 @@ const fragmentShader = `
   vec3 getLighting(vec3 p, vec3 n, vec3 ro, vec3 rd) {
     vec3 col = vec3(0.0);
     vec3 ambient = vec3(0.03, 0.03, 0.06);
-
     float ao = ambientOcclusion(p, n);
     col += ambient * ao;
 
@@ -379,27 +370,23 @@ const fragmentShader = `
   vec3 volumetricFog(vec3 ro, vec3 rd, float dist, vec3 baseCol) {
     vec3 col = baseCol;
     float t = uTime * 0.15;
-
     float fogAmount = 0.0;
     vec3 fogCol = vec3(0.1, 0.08, 0.2);
     float stepSize = dist / 16.0;
-
-    for (int i = 0; i < 16; i++) {
+    for (int i = 0; i < 24; i++) {
+      if (i >= uVolumeFogSteps) break;
       float fi = float(i);
       float d = stepSize * fi;
       vec3 p = ro + rd * d;
-      float noiseVal = fbm(p * 0.3 + vec3(t * 0.2, t * 0.1, t * 0.15));
+      float noiseVal = fbmCustom(p * 0.3 + vec3(t * 0.2, t * 0.1, t * 0.15), uFbmOctaves);
       float density = max(0.0, noiseVal - 0.3) * 0.08;
       fogAmount += density * stepSize;
-
       float lightDist = length(p - vec3(6.0 * sin(t), 7.0, 6.0 * cos(t)));
       float lightInfluence = 1.0 / (1.0 + lightDist * 0.1);
       fogCol += vec3(0.4, 0.6, 1.0) * lightInfluence * density * 0.5;
     }
-
     fogAmount = clamp(fogAmount, 0.0, 1.0);
     col = mix(col, fogCol, fogAmount * 0.5);
-
     return col;
   }
 
@@ -424,7 +411,7 @@ const fragmentShader = `
       col = getLighting(p, n, ro, rd);
       col = volumetricFog(ro, rd, d, col);
 
-      if (uPhase >= 2) {
+      if (uReflectionEnabled && uPhase >= 2) {
         vec3 reflectDir = reflect(rd, n);
         float reflectDist = rayMarch(p + n * 0.02, reflectDir);
         if (reflectDist < MAX_DIST * 0.5) {
@@ -437,7 +424,6 @@ const fragmentShader = `
       }
     } else {
       col = skyColor(rd);
-
       float glow = 0.0;
       for (int i = 0; i < 64; i++) {
         if (i >= uMaxIterations / 3) break;
@@ -464,6 +450,7 @@ function FPSMonitor() {
   const lastTimeRef = useRef(performance.now());
   const setCurrentFPS = useTestStore((s) => s.setCurrentFPS);
   const addFPSRecord = useTestStore((s) => s.addFPSRecord);
+  const recordPhaseFPS = useTestStore((s) => s.recordPhaseFPS);
   const status = useTestStore((s) => s.status);
 
   useFrame(() => {
@@ -477,6 +464,7 @@ function FPSMonitor() {
       const fps = Math.round((frameCountRef.current * 1000) / elapsed);
       setCurrentFPS(fps);
       addFPSRecord(fps);
+      recordPhaseFPS(fps);
       frameCountRef.current = 0;
       lastTimeRef.current = now;
     }
@@ -485,39 +473,37 @@ function FPSMonitor() {
   return null;
 }
 
-function ShaderScene({ phase, pressureLevel }: { phase: TestPhase; pressureLevel: PressureLevel }) {
+function ShaderScene({ phase, dynamicPressure }: { phase: TestPhase; dynamicPressure: number }) {
   const meshRef = useRef<THREE.Mesh>(null);
-  const { viewport, size } = useThree();
-  const cfg = PRESSURE_LEVEL_CONFIG[pressureLevel];
-
-  const phaseIndex = useMemo(() => {
-    switch (phase) {
-      case 'raymarch': return 0;
-      case 'fractal': return 1;
-      case 'lighting': return 2;
-      case 'compute': return 3;
-      default: return 0;
-    }
-  }, [phase]);
+  const { size } = useThree();
+  const params = computeShaderParams(dynamicPressure, phase);
 
   const uniforms = useMemo(() => ({
     uTime: { value: 0 },
     uResolution: { value: new THREE.Vector2(size.width, size.height) },
-    uMaxIterations: { value: cfg.maxIterations },
-    uStepScale: { value: cfg.stepScale },
-    uLightCount: { value: cfg.lightCount },
-    uPhase: { value: phaseIndex },
-  }), [cfg.maxIterations, cfg.stepScale, cfg.lightCount, phaseIndex, size.width, size.height]);
+    uMaxIterations: { value: params.maxIterations },
+    uStepScale: { value: params.stepScale },
+    uLightCount: { value: params.lightCount },
+    uPhase: { value: phase === 'idle' ? 0 : ['raymarch', 'fractal', 'lighting', 'compute'].indexOf(phase) },
+    uFbmOctaves: { value: params.fbmOctaves },
+    uShadowSteps: { value: params.shadowSteps },
+    uAoSteps: { value: params.aoSteps },
+    uVolumeFogSteps: { value: params.volumeFogSteps },
+    uReflectionEnabled: { value: params.reflectionEnabled },
+  }), []);
 
   useFrame((state) => {
     if (meshRef.current) {
       const mat = meshRef.current.material as THREE.ShaderMaterial;
       mat.uniforms.uTime.value = state.clock.elapsedTime;
       mat.uniforms.uResolution.value.set(size.width, size.height);
-      mat.uniforms.uMaxIterations.value = cfg.maxIterations;
-      mat.uniforms.uStepScale.value = cfg.stepScale;
-      mat.uniforms.uLightCount.value = cfg.lightCount;
-      mat.uniforms.uPhase.value = phaseIndex;
+      mat.uniforms.uMaxIterations.value = params.maxIterations;
+      mat.uniforms.uLightCount.value = params.lightCount;
+      mat.uniforms.uFbmOctaves.value = params.fbmOctaves;
+      mat.uniforms.uShadowSteps.value = params.shadowSteps;
+      mat.uniforms.uAoSteps.value = params.aoSteps;
+      mat.uniforms.uVolumeFogSteps.value = params.volumeFogSteps;
+      mat.uniforms.uReflectionEnabled.value = params.reflectionEnabled;
     }
   });
 
@@ -544,13 +530,17 @@ function IdleScene() {
     uStepScale: { value: 0.7 },
     uLightCount: { value: 1 },
     uPhase: { value: 0 },
+    uFbmOctaves: { value: 2 },
+    uShadowSteps: { value: 8 },
+    uAoSteps: { value: 2 },
+    uVolumeFogSteps: { value: 4 },
+    uReflectionEnabled: { value: false },
   }), [size.width, size.height]);
 
   useFrame((state) => {
     if (meshRef.current) {
       const mat = meshRef.current.material as THREE.ShaderMaterial;
       mat.uniforms.uTime.value = state.clock.elapsedTime;
-      mat.uniforms.uResolution.value.set(size.width, size.height);
     }
   });
 
@@ -566,67 +556,24 @@ function IdleScene() {
   );
 }
 
-function WarmupPhase({ pressureLevel }: { pressureLevel: PressureLevel }) {
-  const meshRef = useRef<THREE.Mesh>(null);
-  const { size } = useThree();
-  const cfg = PRESSURE_LEVEL_CONFIG[pressureLevel];
-
-  const uniforms = useMemo(() => ({
-    uTime: { value: 0 },
-    uResolution: { value: new THREE.Vector2(size.width, size.height) },
-    uMaxIterations: { value: Math.floor(cfg.maxIterations * 0.5) },
-    uStepScale: { value: cfg.stepScale },
-    uLightCount: { value: Math.max(1, Math.floor(cfg.lightCount * 0.5)) },
-    uPhase: { value: 0 },
-  }), [cfg.maxIterations, cfg.stepScale, cfg.lightCount, size.width, size.height]);
-
-  useFrame((state) => {
-    if (meshRef.current) {
-      const mat = meshRef.current.material as THREE.ShaderMaterial;
-      mat.uniforms.uTime.value = state.clock.elapsedTime;
-      mat.uniforms.uResolution.value.set(size.width, size.height);
-    }
-  });
-
-  return (
-    <mesh ref={meshRef}>
-      <planeGeometry args={[40, 30]} />
-      <shaderMaterial
-        vertexShader={vertexShader}
-        fragmentShader={fragmentShader}
-        uniforms={uniforms}
-      />
-    </mesh>
-  );
-}
-
-function PhaseContent({ phase, pressureLevel }: { phase: TestPhase; pressureLevel: PressureLevel }) {
-  switch (phase) {
-    case 'warmup': return <WarmupPhase pressureLevel={pressureLevel} />;
-    case 'raymarch':
-    case 'fractal':
-    case 'lighting':
-    case 'compute':
-      return <ShaderScene phase={phase} pressureLevel={pressureLevel} />;
-    default: return <IdleScene />;
-  }
-}
-
-function Scene({ bloomIntensity }: { bloomIntensity: number }) {
-  const currentTestPhase = useTestStore((s) => s.currentTestPhase);
-  const pressureLevel = useTestStore((s) => s.pressureLevel);
+function Scene() {
+  const currentPhase = useTestStore((s) => s.currentTestPhase);
+  const dynamicPressure = useTestStore((s) => s.dynamicPressure);
   const status = useTestStore((s) => s.status);
-
-  const showEffects = status === 'running' && currentTestPhase !== 'idle' && currentTestPhase !== 'warmup';
+  const params = computeShaderParams(dynamicPressure, currentPhase);
 
   return (
     <>
-      <PhaseContent phase={currentTestPhase} pressureLevel={pressureLevel} />
+      {status === 'idle' || currentPhase === 'idle' ? (
+        <IdleScene />
+      ) : (
+        <ShaderScene phase={currentPhase} dynamicPressure={dynamicPressure} />
+      )}
       <FPSMonitor />
-      {showEffects && (
+      {status === 'running' && currentPhase !== 'idle' && (
         <EffectComposer>
           <Bloom
-            intensity={bloomIntensity}
+            intensity={params.bloomIntensity}
             luminanceThreshold={0.5}
             luminanceSmoothing={0.8}
             mipmapBlur
@@ -638,22 +585,17 @@ function Scene({ bloomIntensity }: { bloomIntensity: number }) {
 }
 
 export function Canvas3D() {
-  const bloomIntensity = useTestStore((s) => {
-    const cfg = PRESSURE_LEVEL_CONFIG[s.pressureLevel];
-    return cfg?.bloomIntensity || 0.5;
-  });
-  const pressureLevel = useTestStore((s) => s.pressureLevel);
   const status = useTestStore((s) => s.status);
+  const dynamicPressure = useTestStore((s) => s.dynamicPressure);
   const currentPhase = useTestStore((s) => s.currentTestPhase);
 
+  const params = computeShaderParams(dynamicPressure, currentPhase);
+  const isRunning = status === 'running' && currentPhase !== 'idle';
+
   const dpr = useMemo(() => {
-    const cfg = PRESSURE_LEVEL_CONFIG[pressureLevel];
     const baseDpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
-    if (status === 'running' && currentPhase !== 'idle' && currentPhase !== 'warmup') {
-      return Math.max(1, baseDpr * cfg.resolutionScale);
-    }
-    return baseDpr;
-  }, [pressureLevel, status, currentPhase]);
+    return isRunning ? Math.max(1, baseDpr * params.pixelScale) : baseDpr;
+  }, [isRunning, params.pixelScale]);
 
   return (
     <div className="absolute inset-0 z-0">
@@ -670,7 +612,7 @@ export function Canvas3D() {
         dpr={dpr}
         frameloop="always"
       >
-        <Scene bloomIntensity={bloomIntensity} />
+        <Scene />
       </Canvas>
       <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-deep-black/50 pointer-events-none" />
     </div>

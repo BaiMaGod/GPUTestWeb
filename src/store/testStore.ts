@@ -2,41 +2,82 @@ import { create } from 'zustand';
 
 export type TestStatus = 'idle' | 'running' | 'completed';
 export type PerformanceRating = 'flagship' | 'mainstream' | 'entry' | null;
-export type TestPhase = 'idle' | 'warmup' | 'raymarch' | 'fractal' | 'lighting' | 'compute';
-export type PressureLevel = 'low' | 'medium' | 'high' | 'extreme';
+export type TestPhase = 'idle' | 'raymarch' | 'fractal' | 'lighting' | 'compute';
 
-export const PRESSURE_LEVEL_CONFIG: Record<PressureLevel, {
+// 目标帧率阈值 - 当 FPS 低于此值时停止加压
+const TARGET_FPS_THRESHOLD = 30;
+
+export interface ShaderParams {
   maxIterations: number;
   stepScale: number;
   lightCount: number;
-  resolutionScale: number;
-  phaseDuration: number;
-  label: string;
+  fbmOctaves: number;
+  shadowSteps: number;
+  aoSteps: number;
+  volumeFogSteps: number;
+  reflectionEnabled: boolean;
   bloomIntensity: number;
-}> = {
-  low: { maxIterations: 128, stepScale: 0.9, lightCount: 1, resolutionScale: 0.75, phaseDuration: 4000, label: '低', bloomIntensity: 0.4 },
-  medium: { maxIterations: 256, stepScale: 1.0, lightCount: 2, resolutionScale: 1.0, phaseDuration: 5000, label: '中', bloomIntensity: 0.7 },
-  high: { maxIterations: 384, stepScale: 1.1, lightCount: 3, resolutionScale: 1.25, phaseDuration: 6000, label: '高', bloomIntensity: 1.2 },
-  extreme: { maxIterations: 512, stepScale: 1.2, lightCount: 4, resolutionScale: 1.5, phaseDuration: 7000, label: '极高', bloomIntensity: 1.8 },
-};
-
-export function getPressureLevelFromFPS(avgFPS: number): PressureLevel {
-  if (avgFPS >= 55) return 'extreme';
-  if (avgFPS >= 40) return 'high';
-  if (avgFPS >= 25) return 'medium';
-  return 'low';
+  pixelScale: number; // 像素倍率，1.0 = 原分辨率，2.0 = 4倍像素
+  phaseName: string;
+  weight: number;
 }
 
-export const SUB_TEST_CONFIG_BASE = [
-  { name: '光线步进', phase: 'raymarch' as TestPhase, weight: 1.0 },
-  { name: '分形几何', phase: 'fractal' as TestPhase, weight: 1.2 },
-  { name: '全局光照', phase: 'lighting' as TestPhase, weight: 1.3 },
-  { name: '计算密度', phase: 'compute' as TestPhase, weight: 1.5 },
+export const TEST_PHASES: { phase: TestPhase; name: string; weight: number }[] = [
+  { phase: 'raymarch', name: '光线步进', weight: 1.0 },
+  { phase: 'fractal', name: '分形几何', weight: 1.2 },
+  { phase: 'lighting', name: '全局光照', weight: 1.3 },
+  { phase: 'compute', name: '计算密度', weight: 1.5 },
 ];
+
+// 根据动态压力指数计算 shader 参数
+export function computeShaderParams(dynamicPressure: number, phase: TestPhase): ShaderParams {
+  // 基础参数（压力=1时）
+  const baseIterations = 64;
+  const basePixelScale = 1.0;
+
+  // 递进参数
+  // 每次加压：迭代+32，像素+0.12，噪声+0.4，阴影+2，AO+0.5，体积雾+1
+  const iterations = Math.min(512, baseIterations + dynamicPressure * 32);
+  const pixelScale = Math.min(2.0, basePixelScale + dynamicPressure * 0.12);
+  const fbmOctaves = Math.min(8, 2 + Math.floor(dynamicPressure * 0.4));
+  const shadowSteps = Math.min(48, 8 + dynamicPressure * 2);
+  const aoSteps = Math.min(12, 2 + Math.floor(dynamicPressure * 0.5));
+  const volumeFogSteps = Math.min(24, 4 + dynamicPressure);
+  const bloomIntensity = Math.min(2.0, 0.3 + dynamicPressure * 0.08);
+  const reflectionEnabled = dynamicPressure >= 3;
+  const stepScale = Math.min(1.5, 0.7 + dynamicPressure * 0.05);
+
+  // 光源数：每 2 级加 1 个，上限 4
+  const lightCount = Math.min(4, 1 + Math.floor(dynamicPressure / 2));
+
+  const phaseConfig: Record<TestPhase, { name: string; weight: number }> = {
+    idle: { name: '', weight: 0 },
+    raymarch: { name: '光线步进', weight: 1.0 },
+    fractal: { name: '分形几何', weight: 1.2 },
+    lighting: { name: '全局光照', weight: 1.3 },
+    compute: { name: '计算密度', weight: 1.5 },
+  };
+
+  return {
+    maxIterations: iterations,
+    stepScale,
+    lightCount,
+    fbmOctaves,
+    shadowSteps,
+    aoSteps,
+    volumeFogSteps,
+    reflectionEnabled,
+    bloomIntensity,
+    pixelScale,
+    phaseName: phaseConfig[phase].name,
+    weight: phaseConfig[phase].weight,
+  };
+}
 
 export interface SubTestResult {
   name: string;
   fps: number;
+  maxPressureLevel: number;
   score: number;
 }
 
@@ -52,74 +93,11 @@ export interface TestResult {
   rating: PerformanceRating;
   subTests: SubTestResult[];
   gpuInfo: GPUInfo;
-}
-
-interface GPUSpec {
-  memory: string;
-  driverHint: string;
-}
-
-function getWebGLGPUInfo(): GPUInfo {
-  try {
-    if (typeof document === 'undefined') {
-      return {
-        name: 'Unknown GPU',
-        vendor: 'Unknown',
-        memory: 'Unknown',
-        driver: 'Unknown',
-      };
-    }
-
-    const canvas = document.createElement('canvas');
-    const gl = canvas.getContext('webgl2') || canvas.getContext('webgl') || canvas.getContext('experimental-webgl') as WebGLRenderingContext | null;
-
-    if (!gl) {
-      return {
-        name: 'Unknown GPU',
-        vendor: 'Unknown',
-        memory: 'Unknown',
-        driver: 'Unknown',
-      };
-    }
-
-    const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
-
-    let rawVendor = 'Unknown';
-    let rawRenderer = 'Unknown';
-
-    if (debugInfo) {
-      rawVendor = gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL) || 'Unknown';
-      rawRenderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) || 'Unknown';
-    } else {
-      rawVendor = gl.getParameter(gl.VENDOR) || 'Unknown';
-      rawRenderer = gl.getParameter(gl.RENDERER) || 'Unknown GPU';
-    }
-
-    const gpuName = cleanGPUName(rawRenderer);
-    const vendor = cleanVendor(rawVendor, rawRenderer);
-    const memory = getGPUMemory(gpuName, rawRenderer);
-    const driver = getGPUDriver(gpuName, rawRenderer, rawVendor);
-
-    return {
-      name: gpuName,
-      vendor: vendor,
-      memory: memory,
-      driver: driver,
-    };
-  } catch {
-    return {
-      name: 'Unknown GPU',
-      vendor: 'Unknown',
-      memory: 'Unknown',
-      driver: 'Unknown',
-    };
-  }
+  finalDynamicPressure: number;
 }
 
 function cleanGPUName(rawRenderer: string): string {
   let name = rawRenderer;
-
-  // 处理 ANGLE 格式: ANGLE (Vendor, GPU Name ..., API)
   const angleMatch = name.match(/^ANGLE\s*\((.+)\)$/i);
   if (angleMatch && angleMatch[1]) {
     const inner = angleMatch[1];
@@ -129,37 +107,26 @@ function cleanGPUName(rawRenderer: string): string {
     } else {
       name = inner;
     }
-    // 特殊处理 SwiftShader 等软件渲染器
-    const swiftMatch = name.match(/SwiftShader/i);
-    if (swiftMatch) {
+    if (/SwiftShader/i.test(name)) {
       name = 'SwiftShader';
     }
   } else if (name.startsWith('Mesa ')) {
-    // Mesa 格式: Mesa Intel(R) UHD Graphics 630 (CFL GT2)
     name = name.replace(/^Mesa\s+/i, '');
     const lastParen = name.lastIndexOf(' (');
     if (lastParen > 0) {
       name = name.substring(0, lastParen);
     }
   } else {
-    // 非 ANGLE 格式，尝试提取显卡名
-    // 如果包含括号且括号不在开头，保留原名进行后续清理
     const hasParen = name.includes('(') && name.includes(')');
     if (!hasParen) {
-      // 没有括号，直接用原名
     } else if (!name.startsWith('(')) {
-      // 括号不在开头，可能是 "Intel(R) UHD Graphics 630" 这种格式
-      // 保留原名进行后续清理
     } else {
-      // 括号在开头，提取内容
       const parenMatch = name.match(/\((.+)\)/);
       if (parenMatch && parenMatch[1]) {
         name = parenMatch[1];
       }
     }
   }
-
-  // 移除 Direct3D / Metal / OpenGL 相关后缀
   name = name.replace(/\s*Direct3D\d*\s*vs_\d+_0\s*ps_\d+_0/i, '');
   name = name.replace(/\s*\(0x[0-9a-fA-F]+\)/g, '');
   name = name.replace(/\s*OpenGL Engine.*/i, '');
@@ -173,8 +140,6 @@ function cleanGPUName(rawRenderer: string): string {
   name = name.replace(/\s*\/\s*SSE2.*$/i, '');
   name = name.replace(/\s*\/.*$/, '');
   name = name.trim();
-
-  // 如果还有逗号，取最后一个有意义的部分
   if (name.includes(',')) {
     const parts = name.split(',').map(p => p.trim()).filter(p => p.length > 0);
     for (let i = parts.length - 1; i >= 0; i--) {
@@ -185,52 +150,29 @@ function cleanGPUName(rawRenderer: string): string {
       }
     }
   }
-
-  // 清理多余的空格
   name = name.replace(/\s+/g, ' ').trim();
-
   return name || rawRenderer;
 }
 
 function cleanVendor(rawVendor: string, rawRenderer: string): string {
-  // 从 vendor 中提取真实厂商
   let vendor = rawVendor;
-
-  // 去除 Google Inc. 等浏览器相关前缀
   const parenMatch = vendor.match(/\(([^)]+)\)/);
   if (parenMatch && parenMatch[1]) {
     vendor = parenMatch[1];
   }
-
-  // 从 renderer 中补充判断
   const rendererLower = rawRenderer.toLowerCase();
-  if (rendererLower.includes('nvidia') || vendor.toLowerCase().includes('nvidia')) {
-    return 'NVIDIA';
-  }
-  if (rendererLower.includes('amd') || rendererLower.includes('radeon') || vendor.toLowerCase().includes('amd')) {
-    return 'AMD';
-  }
-  if (rendererLower.includes('intel') || vendor.toLowerCase().includes('intel')) {
-    return 'Intel';
-  }
-  if (rendererLower.includes('apple') || vendor.toLowerCase().includes('apple')) {
-    return 'Apple';
-  }
-  if (rendererLower.includes('qualcomm') || rendererLower.includes('adreno')) {
-    return 'Qualcomm';
-  }
-  if (rendererLower.includes('mali') || rendererLower.includes('arm')) {
-    return 'ARM';
-  }
-
+  if (rendererLower.includes('nvidia') || vendor.toLowerCase().includes('nvidia')) return 'NVIDIA';
+  if (rendererLower.includes('amd') || rendererLower.includes('radeon') || vendor.toLowerCase().includes('amd')) return 'AMD';
+  if (rendererLower.includes('intel') || vendor.toLowerCase().includes('intel')) return 'Intel';
+  if (rendererLower.includes('apple') || vendor.toLowerCase().includes('apple')) return 'Apple';
+  if (rendererLower.includes('qualcomm') || rendererLower.includes('adreno')) return 'Qualcomm';
+  if (rendererLower.includes('mali') || rendererLower.includes('arm')) return 'ARM';
   return vendor.trim() || 'Unknown';
 }
 
 function getGPUMemory(gpuName: string, rawRenderer: string): string {
   const nameLower = gpuName.toLowerCase();
   const rawLower = rawRenderer.toLowerCase();
-
-  // 从原始字符串中直接查找显存信息
   const memMatch = rawLower.match(/(\d+)\s*gb/);
   if (memMatch) {
     const gb = parseInt(memMatch[1]);
@@ -238,182 +180,129 @@ function getGPUMemory(gpuName: string, rawRenderer: string): string {
     if (gb >= 10) return `${gb}GB GDDR6X`;
     return `${gb}GB GDDR6`;
   }
-
-  // 软件渲染器
-  if (nameLower.includes('swiftshader') || nameLower.includes('llvmpipe')) {
-    return 'Software';
-  }
-
-  // Intel 集成显卡检测优先
-  if (nameLower.includes('uhd')) return 'Shared Memory';
-  if (nameLower.includes('iris xe max')) return '4GB GDDR6';
-  if (nameLower.includes('iris')) return 'Shared Memory';
-  if (nameLower.includes('hd graphics')) return 'Shared Memory';
-  if (nameLower.includes('hd ') && nameLower.includes('intel')) return 'Shared Memory';
-
-  // Intel 独立显卡 (Arc)
-  if (nameLower.includes('arc a770')) return '16GB GDDR6';
-  if (nameLower.includes('arc a750')) return '8GB GDDR6';
-  if (nameLower.includes('arc a580')) return '8GB GDDR6';
-  if (nameLower.includes('arc a380')) return '6GB GDDR6';
-  if (nameLower.includes('arc a310')) return '4GB GDDR6';
-  if (nameLower.includes('arc')) return 'Shared Memory';
-
-  // NVIDIA 显卡
-  if (nameLower.includes('rtx 5090')) return '32GB GDDR7';
-  if (nameLower.includes('rtx 5080')) return '16GB GDDR7';
-  if (nameLower.includes('rtx 5070 ti')) return '16GB GDDR7';
-  if (nameLower.includes('rtx 5070')) return '12GB GDDR7';
-  if (nameLower.includes('rtx 5060 ti')) return '16GB GDDR7';
-  if (nameLower.includes('rtx 5060')) return '8GB GDDR7';
-  if (nameLower.includes('rtx 4090')) return '24GB GDDR6X';
-  if (nameLower.includes('rtx 4080 super')) return '16GB GDDR6X';
-  if (nameLower.includes('rtx 4080')) return '16GB GDDR6X';
-  if (nameLower.includes('rtx 4070 ti super')) return '16GB GDDR6X';
-  if (nameLower.includes('rtx 4070 ti')) return '12GB GDDR6X';
-  if (nameLower.includes('rtx 4070 super')) return '12GB GDDR6X';
-  if (nameLower.includes('rtx 4070')) return '12GB GDDR6X';
-  if (nameLower.includes('rtx 4060 ti')) return '8GB GDDR6';
-  if (nameLower.includes('rtx 4060')) return '8GB GDDR6';
-  if (nameLower.includes('rtx 4050')) return '6GB GDDR6';
-  if (nameLower.includes('rtx 3090 ti')) return '24GB GDDR6X';
-  if (nameLower.includes('rtx 3090')) return '24GB GDDR6X';
-  if (nameLower.includes('rtx 3080 ti')) return '12GB GDDR6X';
-  if (nameLower.includes('rtx 3080')) return '10GB GDDR6X';
-  if (nameLower.includes('rtx 3070 ti')) return '8GB GDDR6X';
-  if (nameLower.includes('rtx 3070')) return '8GB GDDR6';
-  if (nameLower.includes('rtx 3060 ti')) return '8GB GDDR6';
-  if (nameLower.includes('rtx 3060')) return '12GB GDDR6';
-  if (nameLower.includes('rtx 3050')) return '8GB GDDR6';
-  if (nameLower.includes('rtx 2080 ti')) return '11GB GDDR6';
-  if (nameLower.includes('rtx 2080 super')) return '8GB GDDR6';
-  if (nameLower.includes('rtx 2080')) return '8GB GDDR6';
-  if (nameLower.includes('rtx 2070 super')) return '8GB GDDR6';
-  if (nameLower.includes('rtx 2070')) return '8GB GDDR6';
-  if (nameLower.includes('rtx 2060 super')) return '8GB GDDR6';
-  if (nameLower.includes('rtx 2060')) return '6GB GDDR6';
-  if (nameLower.includes('gtx 1660 super')) return '6GB GDDR6';
-  if (nameLower.includes('gtx 1660 ti')) return '6GB GDDR6';
-  if (nameLower.includes('gtx 1660')) return '6GB GDDR5';
-  if (nameLower.includes('gtx 1650 super')) return '4GB GDDR6';
-  if (nameLower.includes('gtx 1650')) return '4GB GDDR6';
-  if (nameLower.includes('gtx 1080 ti')) return '11GB GDDR5X';
-  if (nameLower.includes('gtx 1080')) return '8GB GDDR5X';
-  if (nameLower.includes('gtx 1070 ti')) return '8GB GDDR5';
-  if (nameLower.includes('gtx 1070')) return '8GB GDDR5';
-  if (nameLower.includes('gtx 1060')) return '6GB GDDR5';
-  if (nameLower.includes('gtx 1050 ti')) return '4GB GDDR5';
-  if (nameLower.includes('gtx 1050')) return '2GB GDDR5';
-
-  // AMD 显卡
-  if (nameLower.includes('rx 7900 xtx')) return '24GB GDDR6';
-  if (nameLower.includes('rx 7900 xt')) return '20GB GDDR6';
-  if (nameLower.includes('rx 7800 xt')) return '16GB GDDR6';
-  if (nameLower.includes('rx 7700 xt')) return '12GB GDDR6';
-  if (nameLower.includes('rx 7600 xt')) return '16GB GDDR6';
-  if (nameLower.includes('rx 7600')) return '8GB GDDR6';
-  if (nameLower.includes('rx 7500')) return '8GB GDDR6';
-  if (nameLower.includes('rx 6900 xt')) return '16GB GDDR6';
-  if (nameLower.includes('rx 6800 xt')) return '16GB GDDR6';
-  if (nameLower.includes('rx 6800')) return '16GB GDDR6';
-  if (nameLower.includes('rx 6750 xt')) return '12GB GDDR6';
-  if (nameLower.includes('rx 6700 xt')) return '12GB GDDR6';
-  if (nameLower.includes('rx 6700')) return '10GB GDDR6';
-  if (nameLower.includes('rx 6650 xt')) return '8GB GDDR6';
-  if (nameLower.includes('rx 6600 xt')) return '8GB GDDR6';
-  if (nameLower.includes('rx 6600')) return '8GB GDDR6';
-  if (nameLower.includes('rx 6500 xt')) return '4GB GDDR6';
-  if (nameLower.includes('rx 5700 xt')) return '8GB GDDR6';
-  if (nameLower.includes('rx 5700')) return '8GB GDDR6';
-
+  if (/swiftshader|llvmpipe/i.test(nameLower)) return 'Software';
+  if (/uhd/i.test(nameLower)) return 'Shared Memory';
+  if (/iris xe max/i.test(nameLower)) return '4GB GDDR6';
+  if (/iris/i.test(nameLower)) return 'Shared Memory';
+  if (/hd graphics/i.test(nameLower)) return 'Shared Memory';
+  if (/hd .+intel/i.test(nameLower)) return 'Shared Memory';
+  if (/arc a770/i.test(nameLower)) return '16GB GDDR6';
+  if (/arc a750/i.test(nameLower)) return '8GB GDDR6';
+  if (/arc a580/i.test(nameLower)) return '8GB GDDR6';
+  if (/arc a380/i.test(nameLower)) return '6GB GDDR6';
+  if (/arc a310/i.test(nameLower)) return '4GB GDDR6';
+  if (/arc/i.test(nameLower)) return 'Shared Memory';
+  if (/rtx 5090/i.test(nameLower)) return '32GB GDDR7';
+  if (/rtx 5080/i.test(nameLower)) return '16GB GDDR7';
+  if (/rtx 5070 ti/i.test(nameLower)) return '16GB GDDR7';
+  if (/rtx 5070/i.test(nameLower)) return '12GB GDDR7';
+  if (/rtx 5060 ti/i.test(nameLower)) return '16GB GDDR7';
+  if (/rtx 5060/i.test(nameLower)) return '8GB GDDR7';
+  if (/rtx 4090/i.test(nameLower)) return '24GB GDDR6X';
+  if (/rtx 4080/i.test(nameLower)) return '16GB GDDR6X';
+  if (/rtx 4070/i.test(nameLower)) return '12GB GDDR6X';
+  if (/rtx 4060/i.test(nameLower)) return '8GB GDDR6';
+  if (/rtx 3090/i.test(nameLower)) return '24GB GDDR6X';
+  if (/rtx 3080/i.test(nameLower)) return '10GB GDDR6X';
+  if (/rtx 3070/i.test(nameLower)) return '8GB GDDR6';
+  if (/rtx 3060/i.test(nameLower)) return '12GB GDDR6';
+  if (/rtx 3050/i.test(nameLower)) return '8GB GDDR6';
+  if (/rtx/i.test(nameLower)) return '8GB GDDR6';
+  if (/gtx 16/i.test(nameLower)) return '6GB GDDR6';
+  if (/gtx/i.test(nameLower)) return '8GB GDDR5';
+  if (/rx 7900/i.test(nameLower)) return '24GB GDDR6';
+  if (/rx 7800/i.test(nameLower)) return '16GB GDDR6';
+  if (/rx 7700/i.test(nameLower)) return '12GB GDDR6';
+  if (/rx 7600/i.test(nameLower)) return '8GB GDDR6';
+  if (/rx 6900|rx 6800/i.test(nameLower)) return '16GB GDDR6';
+  if (/rx 6700|rx 6650|rx 6600/i.test(nameLower)) return '8GB GDDR6';
+  if (/rx/i.test(nameLower)) return '8GB GDDR6';
   return 'Unknown';
 }
 
 function getGPUDriver(gpuName: string, rawRenderer: string, rawVendor: string): string {
   const nameLower = gpuName.toLowerCase();
-  const rawLower = rawRenderer.toLowerCase();
-  const vendorLower = rawVendor.toLowerCase();
-
-  // 合并所有可能包含版本号的字符串
   const combined = `${rawRenderer} ${rawVendor}`;
-
-  // 从原始字符串中查找驱动版本号 - 尝试多种模式
   const patterns = [
-    /(\d{2,}\.\d+\.\d+\.\d+)/,
-    /(\d{3,}\.\d+\.\d+)/,
-    /(\d{2}\.\d+\.\d+\.\d{4,})/,
-    /(\d+\.\d+\.\d+\.\d+)/,
-    /driver\s*version\s*[:\s]*([\d.]+)/i,
-    /version\s*[:\s]*([\d]+\.[\d]+\.[\d]+)/i,
+    /(\d{2,}\.\d+\.\d+\.\d+)/, /(\d{3,}\.\d+\.\d+)/,
+    /(\d{2}\.\d+\.\d+\.\d{4,})/, /(\d+\.\d+\.\d+\.\d+)/,
   ];
-
   for (const pattern of patterns) {
     const match = combined.match(pattern);
-    if (match && match[1]) {
-      const version = match[1];
-      if (version.length >= 5 && !version.startsWith('0.')) {
-        return version;
-      }
+    if (match && match[1] && match[1].length >= 5 && !match[1].startsWith('0.')) {
+      return match[1];
     }
   }
-
-  // 软件渲染器
-  if (nameLower.includes('swiftshader') || nameLower.includes('llvmpipe')) {
-    return 'Software';
-  }
-
-  // Intel 驱动版本检测优先
-  if (nameLower.includes('intel') || nameLower.includes('uhd') || nameLower.includes('hd graphics') || nameLower.includes('iris')) {
-    if (nameLower.includes('arc')) return '31.x+';
-    if (nameLower.includes('iris xe')) return '31.x+';
-    if (nameLower.includes('uhd 7')) return '31.x+';
-    if (nameLower.includes('uhd 6')) return '30.x+';
-    if (nameLower.includes('uhd')) return '30.x+';
-    if (nameLower.includes('hd 6')) return '27.x+';
-    if (nameLower.includes('hd 5')) return '26.x+';
-    if (nameLower.includes('hd 4')) return '20.x+';
+  if (/swiftshader|llvmpipe/i.test(nameLower)) return 'Software';
+  if (/intel|uhd|hd graphics|iris/i.test(nameLower)) {
+    if (/arc/i.test(nameLower)) return '31.x+';
+    if (/iris xe/i.test(nameLower)) return '31.x+';
+    if (/uhd 7/i.test(nameLower)) return '31.x+';
+    if (/uhd 6/i.test(nameLower)) return '30.x+';
+    if (/uhd/i.test(nameLower)) return '30.x+';
+    if (/hd 6/i.test(nameLower)) return '27.x+';
+    if (/hd 5/i.test(nameLower)) return '26.x+';
+    if (/hd 4/i.test(nameLower)) return '20.x+';
     return '31.x+';
   }
-
-  // NVIDIA
-  if (nameLower.includes('rtx 50')) return '570.x+';
-  if (nameLower.includes('rtx 40')) return '550.x+';
-  if (nameLower.includes('rtx 30')) return '530.x+';
-  if (nameLower.includes('rtx 20')) return '520.x+';
-  if (nameLower.includes('gtx 16')) return '515.x+';
-  if (nameLower.includes('gtx 10')) return '490.x+';
-  if (nameLower.includes('nvidia') || nameLower.includes('geforce')) return '530.x+';
-
-  // AMD
-  if (nameLower.includes('rx 7')) return '23.x+';
-  if (nameLower.includes('rx 6')) return '22.x+';
-  if (nameLower.includes('rx 5')) return '21.x+';
-  if (nameLower.includes('amd') || nameLower.includes('radeon')) return '22.x+';
-
+  if (/rtx 50/i.test(nameLower)) return '570.x+';
+  if (/rtx 40/i.test(nameLower)) return '550.x+';
+  if (/rtx 30/i.test(nameLower)) return '530.x+';
+  if (/rtx/i.test(nameLower)) return '520.x+';
+  if (/gtx 16|gtx 10|geforce/i.test(nameLower)) return '515.x+';
+  if (/amd|radeon|rx/i.test(nameLower)) return '22.x+';
   return 'Unknown';
+}
+
+function getWebGLGPUInfo(): GPUInfo {
+  try {
+    if (typeof document === 'undefined') return { name: 'Unknown GPU', vendor: 'Unknown', memory: 'Unknown', driver: 'Unknown' };
+    const canvas = document.createElement('canvas');
+    const gl = (canvas.getContext('webgl2') || canvas.getContext('webgl') || canvas.getContext('experimental-webgl')) as WebGLRenderingContext | null;
+    if (!gl) return { name: 'Unknown GPU', vendor: 'Unknown', memory: 'Unknown', driver: 'Unknown' };
+    const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+    let rawVendor = debugInfo ? String(gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL)) : String(gl.getParameter(gl.VENDOR));
+    let rawRenderer = debugInfo ? String(gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL)) : String(gl.getParameter(gl.RENDERER));
+    const gpuName = cleanGPUName(rawRenderer);
+    const vendor = cleanVendor(rawVendor, rawRenderer);
+    const memory = getGPUMemory(gpuName, rawRenderer);
+    const driver = getGPUDriver(gpuName, rawRenderer, rawVendor);
+    return { name: gpuName, vendor, memory, driver };
+  } catch {
+    return { name: 'Unknown GPU', vendor: 'Unknown', memory: 'Unknown', driver: 'Unknown' };
+  }
+}
+
+interface PhaseRecord {
+  phase: TestPhase;
+  fpsHistory: number[];
+  maxPressureLevel: number;
 }
 
 interface TestState {
   status: TestStatus;
   currentTestPhase: TestPhase;
-  pressureLevel: PressureLevel;
+  dynamicPressure: number;
   currentFPS: number;
   gpuUsage: number;
   fpsHistory: number[];
-  remainingTime: number | null;
+  phaseRecords: PhaseRecord[];
   finalScore: number | null;
   rating: PerformanceRating;
   gpuInfo: GPUInfo;
   testResult: TestResult | null;
+  phaseStartTime: number;
+  lastPressureIncreaseTime: number;
 
   initializeGPUInfo: () => void;
   setStatus: (status: TestStatus) => void;
   setCurrentTestPhase: (phase: TestPhase) => void;
-  setPressureLevel: (level: PressureLevel) => void;
+  setDynamicPressure: (pressure: number) => void;
+  incrementDynamicPressure: () => void;
   setCurrentFPS: (fps: number) => void;
   setGpuUsage: (usage: number) => void;
   addFPSRecord: (fps: number) => void;
-  setRemainingTime: (time: number | null) => void;
+  recordPhaseFPS: (fps: number) => void;
   setTestResult: (result: TestResult) => void;
   reset: () => void;
 }
@@ -423,18 +312,20 @@ const initialGPUInfo = getWebGLGPUInfo();
 const initialState = {
   status: 'idle' as TestStatus,
   currentTestPhase: 'idle' as TestPhase,
-  pressureLevel: 'medium' as PressureLevel,
+  dynamicPressure: 1,
   currentFPS: 0,
   gpuUsage: 0,
   fpsHistory: [] as number[],
-  remainingTime: null as number | null,
+  phaseRecords: [] as PhaseRecord[],
   finalScore: null as number | null,
   rating: null as PerformanceRating,
   gpuInfo: initialGPUInfo,
   testResult: null as TestResult | null,
+  phaseStartTime: 0,
+  lastPressureIncreaseTime: 0,
 };
 
-export const useTestStore = create<TestState>((set) => ({
+export const useTestStore = create<TestState>((set, get) => ({
   ...initialState,
 
   initializeGPUInfo: () => {
@@ -444,9 +335,19 @@ export const useTestStore = create<TestState>((set) => ({
 
   setStatus: (status) => set({ status }),
 
-  setCurrentTestPhase: (phase) => set({ currentTestPhase: phase }),
+  setCurrentTestPhase: (phase) => {
+    const now = Date.now();
+    set({ currentTestPhase: phase, dynamicPressure: 1, phaseStartTime: now, lastPressureIncreaseTime: now, fpsHistory: [] });
+  },
 
-  setPressureLevel: (level) => set({ pressureLevel: level }),
+  setDynamicPressure: (pressure) => set({ dynamicPressure: pressure }),
+
+  incrementDynamicPressure: () => {
+    const { dynamicPressure, currentFPS } = get();
+    if (currentFPS >= TARGET_FPS_THRESHOLD) {
+      set({ dynamicPressure: dynamicPressure + 1, lastPressureIncreaseTime: Date.now() });
+    }
+  },
 
   setCurrentFPS: (fps) => set({ currentFPS: fps }),
 
@@ -456,7 +357,17 @@ export const useTestStore = create<TestState>((set) => ({
     fpsHistory: [...state.fpsHistory.slice(-999), fps],
   })),
 
-  setRemainingTime: (time) => set({ remainingTime: time }),
+  recordPhaseFPS: (fps) => {
+    const { currentTestPhase, dynamicPressure, phaseRecords } = get();
+    const existing = phaseRecords.find(r => r.phase === currentTestPhase);
+    if (existing) {
+      existing.fpsHistory.push(fps);
+      existing.maxPressureLevel = Math.max(existing.maxPressureLevel, dynamicPressure);
+      set({ phaseRecords: [...phaseRecords] });
+    } else {
+      set({ phaseRecords: [...phaseRecords, { phase: currentTestPhase, fpsHistory: [fps], maxPressureLevel: dynamicPressure }] });
+    }
+  },
 
   setTestResult: (result) => set({
     testResult: result,

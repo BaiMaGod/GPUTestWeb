@@ -1,42 +1,42 @@
 import { useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Play, Loader2, Cpu, Gauge, Zap } from 'lucide-react';
+import { Play, Loader2, Cpu, Gauge, Zap, Activity } from 'lucide-react';
 import { SafeCanvas3D } from './SafeCanvas3D';
-import {
-  useTestStore,
-  type PerformanceRating,
-  SUB_TEST_CONFIG_BASE,
-  PRESSURE_LEVEL_CONFIG,
-  getPressureLevelFromFPS,
-} from '@/store/testStore';
-import type { TestPhase, PressureLevel } from '@/store/testStore';
+import { useTestStore, TEST_PHASES, computeShaderParams } from '@/store/testStore';
+import type { PerformanceRating } from '@/store/testStore';
 
-const WARMUP_DURATION = 5000;
+const TARGET_FPS = 30;
+const STABILIZE_TIME = 2000;
+const PRESSURE_INCREASE_INTERVAL = 1500;
 
 export function HeroSection() {
   const {
     status,
     currentFPS,
     gpuUsage,
-    remainingTime,
+    dynamicPressure,
+    currentTestPhase,
+    phaseRecords,
+    finalScore,
+    rating,
+    gpuInfo,
     setStatus,
     setCurrentTestPhase,
-    setPressureLevel,
+    incrementDynamicPressure,
     setGpuUsage,
-    setRemainingTime,
     setTestResult,
-    rating,
+    reset,
   } = useTestStore();
 
   const animationRef = useRef<number | null>(null);
   const hasStartedRef = useRef(false);
-  const phaseFPSRecordsRef = useRef<number[][]>([]);
-  const currentPhaseRef = useRef<number>(0);
+  const currentPhaseIdxRef = useRef(0);
   const phaseStartTimeRef = useRef(0);
-  const totalStartTimeRef = useRef(0);
-  const warmupFPSRef = useRef<number[]>([]);
-  const testModeRef = useRef<'warmup' | 'main'>('warmup');
-  const pressureLevelRef = useRef<PressureLevel>('medium');
+  const lastPressureIncreaseRef = useRef(0);
+  const stabilizeStartRef = useRef(0);
+  const isStabilizedRef = useRef(false);
+  const fpsRecordsRef = useRef<number[]>([]);
+  const phaseMaxPressureRef = useRef(1);
 
   const getFPSColor = (fps: number) => {
     if (fps >= 55) return 'text-perf-green';
@@ -57,150 +57,98 @@ export function HeroSection() {
     }
   };
 
-  const getCurrentPhaseInfo = (): { name: string; isWarmup: boolean } => {
-    if (testModeRef.current === 'warmup') {
-      return { name: '性能预估', isWarmup: true };
-    }
-    const idx = currentPhaseRef.current;
-    if (idx >= 0 && idx < SUB_TEST_CONFIG_BASE.length) {
-      return { name: SUB_TEST_CONFIG_BASE[idx].name, isWarmup: false };
-    }
-    return { name: '测试中', isWarmup: false };
+  const getPhaseName = (): string => {
+    if (currentTestPhase === 'idle') return '空闲';
+    const config = TEST_PHASES.find(t => t.phase === currentTestPhase);
+    return config?.name || '测试中';
   };
 
-  const calculateRating = (totalScore: number): { rating: PerformanceRating; score: number } => {
-    let r: PerformanceRating;
-
-    if (totalScore >= 15000) {
-      r = 'flagship';
-    } else if (totalScore >= 6000) {
-      r = 'mainstream';
-    } else {
-      r = 'entry';
-    }
-
-    return { rating: r, score: totalScore };
-  };
-
-  const finishBenchmark = () => {
-    const pressureLevel = pressureLevelRef.current;
-
-    const pressureMultiplier = {
-      low: 1.0,
-      medium: 1.3,
-      high: 1.8,
-      extreme: 2.5,
-    }[pressureLevel];
-
-    const subTestResults = SUB_TEST_CONFIG_BASE.map((test, index) => {
-      const records = phaseFPSRecordsRef.current[index] || [];
-      const avg = records.length > 0
-        ? Math.round(records.reduce((a, b) => a + b, 0) / records.length)
-        : 30;
+  const finishTest = () => {
+    const results = phaseRecords.map((record, idx) => {
+      const config = TEST_PHASES[idx];
+      const avgFPS = record.fpsHistory.length > 0
+        ? Math.round(record.fpsHistory.reduce((a, b) => a + b, 0) / record.fpsHistory.length)
+        : TARGET_FPS;
+      const params = computeShaderParams(record.maxPressureLevel, record.phase);
+      const score = Math.round(avgFPS * record.maxPressureLevel * config.weight * 50);
       return {
-        name: test.name,
-        fps: avg,
-        score: Math.round(avg * 15 * test.weight * pressureMultiplier),
+        name: config.name,
+        fps: avgFPS,
+        maxPressureLevel: record.maxPressureLevel,
+        score,
       };
     });
 
-    const overallScore = subTestResults.reduce((sum, r) => sum + r.score, 0);
-    const { rating: r } = calculateRating(overallScore);
+    const overallScore = results.reduce((sum, r) => sum + r.score, 0);
+    let ratingVal: PerformanceRating;
+    if (overallScore >= 20000) ratingVal = 'flagship';
+    else if (overallScore >= 8000) ratingVal = 'mainstream';
+    else ratingVal = 'entry';
 
-    const gpuInfo = useTestStore.getState().gpuInfo;
+    const finalPressure = phaseRecords.length > 0
+      ? Math.max(...phaseRecords.map(r => r.maxPressureLevel))
+      : 1;
+
     setTestResult({
       overallScore,
-      rating: r,
-      subTests: subTestResults,
+      rating: ratingVal,
+      subTests: results,
       gpuInfo,
+      finalDynamicPressure: finalPressure,
     });
   };
 
-  const startMainTest = (pressureLevel: PressureLevel) => {
-    pressureLevelRef.current = pressureLevel;
-    setPressureLevel(pressureLevel);
-    testModeRef.current = 'main';
-    currentPhaseRef.current = 0;
-    phaseFPSRecordsRef.current = [];
-    phaseStartTimeRef.current = performance.now();
-    totalStartTimeRef.current = performance.now();
-
-    setCurrentTestPhase(SUB_TEST_CONFIG_BASE[0].phase);
-    phaseFPSRecordsRef.current[0] = [];
-  };
-
-  const finishWarmup = () => {
-    const records = warmupFPSRef.current;
-    const avgFPS = records.length > 0
-      ? records.reduce((a, b) => a + b, 0) / records.length
-      : 60;
-
-    const pressureLevel = getPressureLevelFromFPS(avgFPS);
-    startMainTest(pressureLevel);
+  const advanceToNextPhase = () => {
+    currentPhaseIdxRef.current++;
+    if (currentPhaseIdxRef.current < TEST_PHASES.length) {
+      const nextPhase = TEST_PHASES[currentPhaseIdxRef.current].phase;
+      setCurrentTestPhase(nextPhase);
+      fpsRecordsRef.current = [];
+      phaseMaxPressureRef.current = 1;
+      isStabilizedRef.current = false;
+      phaseStartTimeRef.current = performance.now();
+      lastPressureIncreaseRef.current = performance.now();
+    } else {
+      finishTest();
+    }
   };
 
   const updateTest = () => {
     const currentTime = performance.now();
+    const currentPhaseIdx = currentPhaseIdxRef.current;
+    const currentPhase = TEST_PHASES[currentPhaseIdx];
 
-    if (testModeRef.current === 'warmup') {
-      const elapsed = currentTime - totalStartTimeRef.current;
-      const remaining = Math.max(0, WARMUP_DURATION - elapsed);
-      setRemainingTime(Math.ceil(remaining / 1000));
-
-      const currentFPSVal = useTestStore.getState().currentFPS;
-      if (currentFPSVal > 0) {
-        warmupFPSRef.current.push(currentFPSVal);
-      }
-
-      const displayRefreshRate = 60;
-      const estimatedUsage = Math.min(100, Math.max(5, Math.round((displayRefreshRate / Math.max(currentFPSVal, 1)) * 25 + (Math.random() - 0.5) * 6)));
-      setGpuUsage(estimatedUsage);
-
-      if (elapsed >= WARMUP_DURATION) {
-        finishWarmup();
-      }
-
-      animationRef.current = requestAnimationFrame(updateTest);
+    if (!currentPhase) {
+      finishTest();
       return;
     }
-
-    const currentPhaseIdx = currentPhaseRef.current;
-    const testConfig = SUB_TEST_CONFIG_BASE[currentPhaseIdx];
-    const pressureCfg = PRESSURE_LEVEL_CONFIG[pressureLevelRef.current];
-
-    if (!testConfig) {
-      finishBenchmark();
-      return;
-    }
-
-    const phaseElapsed = currentTime - phaseStartTimeRef.current;
-    const phaseDuration = pressureCfg.phaseDuration;
-    const totalElapsed = currentTime - totalStartTimeRef.current;
-
-    if (phaseElapsed >= phaseDuration) {
-      currentPhaseRef.current++;
-      phaseStartTimeRef.current = currentTime;
-
-      if (currentPhaseRef.current < SUB_TEST_CONFIG_BASE.length) {
-        setCurrentTestPhase(SUB_TEST_CONFIG_BASE[currentPhaseRef.current].phase);
-        phaseFPSRecordsRef.current[currentPhaseRef.current] = [];
-      } else {
-        finishBenchmark();
-        return;
-      }
-    }
-
-    const totalDuration = SUB_TEST_CONFIG_BASE.length * phaseDuration;
-    const remaining = Math.max(0, totalDuration - totalElapsed);
-    setRemainingTime(Math.ceil(remaining / 1000));
 
     const currentFPSVal = useTestStore.getState().currentFPS;
-    if (currentFPSVal > 0 && phaseFPSRecordsRef.current[currentPhaseIdx]) {
-      phaseFPSRecordsRef.current[currentPhaseIdx].push(currentFPSVal);
+    const currentDynPressure = useTestStore.getState().dynamicPressure;
+    const phaseElapsed = currentTime - phaseStartTimeRef.current;
+
+    if (currentFPSVal > 0) {
+      fpsRecordsRef.current.push(currentFPSVal);
     }
 
-    const displayRefreshRate = 60;
-    const estimatedUsage = Math.min(100, Math.max(10, Math.round((displayRefreshRate / Math.max(currentFPSVal, 1)) * 35 + (Math.random() - 0.5) * 8)));
+    if (!isStabilizedRef.current) {
+      if (currentFPSVal >= TARGET_FPS) {
+        stabilizeStartRef.current = currentTime;
+        if (currentTime - lastPressureIncreaseRef.current >= PRESSURE_INCREASE_INTERVAL) {
+          lastPressureIncreaseRef.current = currentTime;
+          incrementDynamicPressure();
+          phaseMaxPressureRef.current = Math.max(phaseMaxPressureRef.current, currentDynPressure + 1);
+        }
+      } else {
+        const stabilizeElapsed = currentTime - stabilizeStartRef.current;
+        if (stabilizeElapsed >= STABILIZE_TIME) {
+          isStabilizedRef.current = true;
+          advanceToNextPhase();
+        }
+      }
+    }
+
+    const estimatedUsage = Math.min(99, Math.max(15, Math.round((60 / Math.max(currentFPSVal, 1)) * 30 + 20)));
     setGpuUsage(estimatedUsage);
 
     animationRef.current = requestAnimationFrame(updateTest);
@@ -209,37 +157,44 @@ export function HeroSection() {
   useEffect(() => {
     if (status !== 'running') {
       hasStartedRef.current = false;
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+        animationRef.current = null;
+      }
       return;
     }
 
     if (hasStartedRef.current) return;
     hasStartedRef.current = true;
 
-    warmupFPSRef.current = [];
-    testModeRef.current = 'warmup';
-    pressureLevelRef.current = 'medium';
-    setPressureLevel('medium');
-    totalStartTimeRef.current = performance.now();
+    currentPhaseIdxRef.current = 0;
+    phaseStartTimeRef.current = performance.now();
+    lastPressureIncreaseRef.current = performance.now();
+    stabilizeStartRef.current = performance.now();
+    isStabilizedRef.current = false;
+    fpsRecordsRef.current = [];
+    phaseMaxPressureRef.current = 1;
 
-    setCurrentTestPhase('warmup');
+    setCurrentTestPhase(TEST_PHASES[0].phase);
 
     animationRef.current = requestAnimationFrame(updateTest);
 
     return () => {
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current);
+        animationRef.current = null;
       }
     };
-  }, [status, setRemainingTime, setTestResult, setGpuUsage, setCurrentTestPhase, setPressureLevel]);
+  }, [status]);
 
   const handleStartTest = () => {
     if (status === 'idle' || status === 'completed') {
+      reset();
       setStatus('running');
     }
   };
 
   const ratingInfo = getRatingInfo(rating);
-  const phaseInfo = getCurrentPhaseInfo();
 
   return (
     <section className="relative min-h-screen flex flex-col items-center justify-center overflow-hidden">
@@ -256,7 +211,9 @@ export function HeroSection() {
             GPU 性能基准测试
           </h1>
           <p className="text-lg text-text-secondary max-w-2xl mx-auto">
-            点击下方按钮，开始评估你的 GPU 性能
+            {status === 'completed'
+              ? '测试完成！以下是详细的性能分析报告'
+              : '点击下方按钮，开始评估你的 GPU 性能'}
           </p>
         </motion.div>
 
@@ -264,7 +221,7 @@ export function HeroSection() {
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           transition={{ duration: 0.5, delay: 0.4 }}
-          className="relative bg-space-gray/80 backdrop-blur-lg rounded-3xl p-8 border border-tech-blue/30 shadow-2xl shadow-tech-blue/10"
+          className="relative bg-space-gray/80 backdrop-blur-lg rounded-3xl p-8 border border-tech-blue/30 shadow-2xl shadow-tech-blue/10 w-full max-w-md"
         >
           <div className="flex items-center justify-center gap-8 mb-4">
             <div className="text-center">
@@ -276,28 +233,33 @@ export function HeroSection() {
                 FPS
               </div>
             </div>
+            <div className="text-center">
+              <div className="text-4xl font-mono font-bold text-electric-purple">
+                P{dynamicPressure}
+              </div>
+              <div className="text-sm text-text-secondary mt-2 flex items-center justify-center gap-1">
+                <Activity className="w-4 h-4" />
+                压力级
+              </div>
+            </div>
           </div>
 
-          {status === 'running' && (
+          {status === 'running' && currentTestPhase !== 'idle' && (
             <motion.div
               initial={{ opacity: 0, y: -5 }}
               animate={{ opacity: 1, y: 0 }}
               className="text-center mb-4"
             >
-              <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium ${
-                phaseInfo.isWarmup
-                  ? 'bg-electric-purple/20 text-electric-purple border border-electric-purple/30'
-                  : 'bg-tech-blue/20 text-tech-blue border border-tech-blue/30'
-              }`}>
-                {phaseInfo.isWarmup ? <Zap className="w-3.5 h-3.5" /> : null}
-                {phaseInfo.name}
+              <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium bg-tech-blue/20 text-tech-blue border border-tech-blue/30">
+                <Zap className="w-3.5 h-3.5" />
+                {getPhaseName()}
               </span>
             </motion.div>
           )}
 
           <div className="mb-6">
             <div className="flex justify-between text-sm text-text-secondary mb-2">
-              <span>GPU 占用率</span>
+              <span>GPU 占用 <span className="text-xs text-text-muted">(估算)</span></span>
               <span>{gpuUsage}%</span>
             </div>
             <div className="h-3 bg-deep-black rounded-full overflow-hidden">
@@ -310,13 +272,17 @@ export function HeroSection() {
             </div>
           </div>
 
-          {status === 'running' && remainingTime !== null && (
+          {status === 'running' && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="text-center text-text-secondary mb-4"
+              className="text-center text-xs text-text-secondary mb-4"
             >
-              预计剩余时间: {remainingTime}s
+              {isStabilizedRef.current
+                ? '压力已稳定，即将进入下一阶段...'
+                : currentFPS >= TARGET_FPS
+                  ? 'GPU 性能充足，自动提升压力中...'
+                  : 'GPU 性能受限，稳定压力中...'}
             </motion.div>
           )}
 
@@ -346,7 +312,7 @@ export function HeroSection() {
             {status === 'running' ? (
               <span className="flex items-center justify-center gap-2">
                 <Loader2 className="w-5 h-5 animate-spin" />
-                测试中...
+                测试中 (P{dynamicPressure})...
               </span>
             ) : status === 'completed' ? (
               <span className="flex items-center justify-center gap-2">
@@ -369,7 +335,7 @@ export function HeroSection() {
           className="mt-8 flex items-center gap-2 text-text-secondary text-sm"
         >
           <Cpu className="w-4 h-4" />
-          <span>自适应压力测试 · 智能匹配 GPU 性能</span>
+          <span>自动递增加压 · 智能探测 GPU 性能上限</span>
         </motion.div>
       </div>
     </section>

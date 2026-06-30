@@ -151,6 +151,7 @@ export function ReportSection() {
               <thead>
                 <tr className="border-b border-space-gray">
                   <th className="text-left py-4 px-4 text-text-secondary font-medium">测试项目</th>
+                  <th className="text-right py-4 px-4 text-text-secondary font-medium">压力级</th>
                   <th className="text-right py-4 px-4 text-text-secondary font-medium">平均 FPS</th>
                   <th className="text-right py-4 px-4 text-text-secondary font-medium">得分</th>
                 </tr>
@@ -165,6 +166,7 @@ export function ReportSection() {
                     className="border-b border-space-gray/50 hover:bg-deep-black/30 transition-colors"
                   >
                     <td className="py-4 px-4 font-medium">{test.name}</td>
+                    <td className="text-right py-4 px-4 font-mono text-electric-purple">P{test.maxPressureLevel}</td>
                     <td className="text-right py-4 px-4 font-mono">
                       <span className={
                         test.fps >= 100 ? 'text-perf-green' :
@@ -179,7 +181,7 @@ export function ReportSection() {
               </tbody>
               <tfoot>
                 <tr className="bg-deep-black/30">
-                  <td className="py-4 px-4 font-bold">总计</td>
+                  <td className="py-4 px-4 font-bold" colSpan={2}>总计</td>
                   <td className="text-right py-4 px-4 font-mono font-bold">
                     {testResult ? Math.round(testResult.subTests.reduce((a, b) => a + b.fps, 0) / testResult.subTests.length) : 0}
                   </td>
