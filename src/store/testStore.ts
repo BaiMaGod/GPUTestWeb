@@ -29,23 +29,55 @@ export const TEST_PHASES: { phase: TestPhase; name: string; weight: number }[] =
   { phase: 'compute', name: '计算密度', weight: 1.5 },
 ];
 
+// GPU Benchmark 压力等级参数标准 (参考 3DMark / Unigine / FurMark 体系)
+// 等级划分:
+//   P1-P5:  入门级 (1080p, 基础画质)
+//   P6-P10: 主流级 (1080p-1440p, 中等画质)
+//   P11-P15: 高端级 (1440p-4K, 高等画质)
+//   P16-P20: 旗舰级 (4K-8K, 极致画质)
+const PRESSURE_LEVELS: Record<number, {
+  pixelScale: number;
+  maxIterations: number;
+  fbmOctaves: number;
+  shadowSteps: number;
+  aoSteps: number;
+  volumeFogSteps: number;
+  reflectionEnabled: boolean;
+  lightCount: number;
+  bloomIntensity: number;
+  stepScale: number;
+}> = {
+  1:  { pixelScale: 1.0,  maxIterations: 32,  fbmOctaves: 2, shadowSteps: 8,  aoSteps: 4,  volumeFogSteps: 0,  reflectionEnabled: false, lightCount: 1, bloomIntensity: 0.3, stepScale: 0.8 },
+  2:  { pixelScale: 1.05, maxIterations: 48,  fbmOctaves: 3, shadowSteps: 10, aoSteps: 5,  volumeFogSteps: 4,  reflectionEnabled: false, lightCount: 1, bloomIntensity: 0.4, stepScale: 0.85 },
+  3:  { pixelScale: 1.1,  maxIterations: 56,  fbmOctaves: 3, shadowSteps: 12, aoSteps: 6,  volumeFogSteps: 6,  reflectionEnabled: false, lightCount: 1, bloomIntensity: 0.5, stepScale: 0.9 },
+  4:  { pixelScale: 1.15, maxIterations: 64,  fbmOctaves: 4, shadowSteps: 14, aoSteps: 7,  volumeFogSteps: 8,  reflectionEnabled: false, lightCount: 2, bloomIntensity: 0.6, stepScale: 0.95 },
+  5:  { pixelScale: 1.2,  maxIterations: 80,  fbmOctaves: 4, shadowSteps: 16, aoSteps: 8,  volumeFogSteps: 10, reflectionEnabled: false, lightCount: 2, bloomIntensity: 0.7, stepScale: 1.0 },
+  6:  { pixelScale: 1.25, maxIterations: 96,  fbmOctaves: 5, shadowSteps: 18, aoSteps: 9,  volumeFogSteps: 12, reflectionEnabled: false, lightCount: 2, bloomIntensity: 0.8, stepScale: 1.0 },
+  7:  { pixelScale: 1.3,  maxIterations: 112, fbmOctaves: 5, shadowSteps: 20, aoSteps: 10, volumeFogSteps: 14, reflectionEnabled: false, lightCount: 2, bloomIntensity: 0.9, stepScale: 1.0 },
+  8:  { pixelScale: 1.35, maxIterations: 128, fbmOctaves: 6, shadowSteps: 22, aoSteps: 11, volumeFogSteps: 16, reflectionEnabled: true,  lightCount: 3, bloomIntensity: 1.0, stepScale: 1.05 },
+  9:  { pixelScale: 1.4,  maxIterations: 144, fbmOctaves: 6, shadowSteps: 24, aoSteps: 12, volumeFogSteps: 18, reflectionEnabled: true,  lightCount: 3, bloomIntensity: 1.1, stepScale: 1.05 },
+  10: { pixelScale: 1.5,  maxIterations: 160, fbmOctaves: 7, shadowSteps: 26, aoSteps: 13, volumeFogSteps: 20, reflectionEnabled: true,  lightCount: 3, bloomIntensity: 1.2, stepScale: 1.1 },
+  11: { pixelScale: 1.6,  maxIterations: 192, fbmOctaves: 7, shadowSteps: 28, aoSteps: 14, volumeFogSteps: 22, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 1.3, stepScale: 1.1 },
+  12: { pixelScale: 1.7,  maxIterations: 224, fbmOctaves: 8, shadowSteps: 30, aoSteps: 15, volumeFogSteps: 24, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 1.4, stepScale: 1.15 },
+  13: { pixelScale: 1.8,  maxIterations: 256, fbmOctaves: 8, shadowSteps: 32, aoSteps: 16, volumeFogSteps: 26, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 1.5, stepScale: 1.15 },
+  14: { pixelScale: 1.9,  maxIterations: 320, fbmOctaves: 8, shadowSteps: 36, aoSteps: 16, volumeFogSteps: 28, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 1.6, stepScale: 1.2 },
+  15: { pixelScale: 2.0,  maxIterations: 384, fbmOctaves: 8, shadowSteps: 40, aoSteps: 16, volumeFogSteps: 30, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 1.7, stepScale: 1.2 },
+  16: { pixelScale: 2.1,  maxIterations: 448, fbmOctaves: 8, shadowSteps: 44, aoSteps: 16, volumeFogSteps: 32, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 1.8, stepScale: 1.2 },
+  17: { pixelScale: 2.2,  maxIterations: 480, fbmOctaves: 8, shadowSteps: 46, aoSteps: 16, volumeFogSteps: 32, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 1.9, stepScale: 1.2 },
+  18: { pixelScale: 2.3,  maxIterations: 496, fbmOctaves: 8, shadowSteps: 48, aoSteps: 16, volumeFogSteps: 32, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.0, stepScale: 1.2 },
+  19: { pixelScale: 2.4,  maxIterations: 504, fbmOctaves: 8, shadowSteps: 48, aoSteps: 16, volumeFogSteps: 32, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.0, stepScale: 1.2 },
+  20: { pixelScale: 2.5,  maxIterations: 512, fbmOctaves: 8, shadowSteps: 48, aoSteps: 16, volumeFogSteps: 32, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.0, stepScale: 1.2 },
+};
+
+function getPressureLevelParams(level: number) {
+  if (level <= 1) return PRESSURE_LEVELS[1];
+  if (level >= 20) return PRESSURE_LEVELS[20];
+  return PRESSURE_LEVELS[level];
+}
+
 // 根据动态压力指数计算 shader 参数
 export function computeShaderParams(dynamicPressure: number, phase: TestPhase): ShaderParams {
-  const baseIterations = 32;
-  const basePixelScale = 0.5;
-
-  const iterations = Math.min(512, Math.floor(baseIterations * Math.pow(1.18, dynamicPressure - 1)));
-  const pixelScale = Math.min(2.0, basePixelScale + dynamicPressure * 0.08);
-  const fbmOctaves = Math.min(8, 2 + Math.floor(dynamicPressure * 0.25));
-  const shadowSteps = Math.min(48, 4 + dynamicPressure * 2);
-  const aoSteps = Math.min(12, 2 + Math.floor(dynamicPressure * 0.4));
-  const volumeFogSteps = Math.min(24, 2 + dynamicPressure);
-  const bloomIntensity = Math.min(1.5, 0.3 + dynamicPressure * 0.05);
-  const reflectionEnabled = dynamicPressure >= 5;
-  const stepScale = Math.min(1.2, 0.6 + dynamicPressure * 0.03);
-
-  // 光源数：每 3 级加 1 个，上限 4
-  const lightCount = Math.min(4, 1 + Math.floor(dynamicPressure / 3));
+  const params = getPressureLevelParams(dynamicPressure);
 
   const phaseConfig: Record<TestPhase, { name: string; weight: number }> = {
     idle: { name: '', weight: 0 },
@@ -56,16 +88,16 @@ export function computeShaderParams(dynamicPressure: number, phase: TestPhase): 
   };
 
   return {
-    maxIterations: iterations,
-    stepScale,
-    lightCount,
-    fbmOctaves,
-    shadowSteps,
-    aoSteps,
-    volumeFogSteps,
-    reflectionEnabled,
-    bloomIntensity,
-    pixelScale,
+    maxIterations: params.maxIterations,
+    stepScale: params.stepScale,
+    lightCount: params.lightCount,
+    fbmOctaves: params.fbmOctaves,
+    shadowSteps: params.shadowSteps,
+    aoSteps: params.aoSteps,
+    volumeFogSteps: params.volumeFogSteps,
+    reflectionEnabled: params.reflectionEnabled,
+    bloomIntensity: params.bloomIntensity,
+    pixelScale: params.pixelScale,
     phaseName: phaseConfig[phase].name,
     weight: phaseConfig[phase].weight,
   };
