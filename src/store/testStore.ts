@@ -4,7 +4,7 @@ export type TestStatus = 'idle' | 'running' | 'completed';
 export type PerformanceRating = 'top' | 'flagship' | 'high' | 'mainstream' | 'mid' | 'entry' | null;
 
 export const FORMAL_RATINGS: { key: PerformanceRating; name: string; minScore: number }[] = [
-  { key: 'top',       name: '顶尖级', minScore: 28000 },
+  { key: 'top',       name: '顶尖级', minScore: 30000 },
   { key: 'flagship',  name: '旗舰级', minScore: 18000 },
   { key: 'high',      name: '高端级', minScore: 10000 },
   { key: 'mainstream', name: '主流级', minScore: 5000 },
@@ -13,8 +13,8 @@ export const FORMAL_RATINGS: { key: PerformanceRating; name: string; minScore: n
 ];
 
 export const FUN_RATINGS: { key: string; name: string; minScore: number }[] = [
-  { key: 'hardcore', name: '夯爆了', minScore: 33000 },
-  { key: 'solid',    name: '夯',     minScore: 23000 },
+  { key: 'hardcore', name: '夯爆了', minScore: 38000 },
+  { key: 'solid',    name: '夯',     minScore: 25000 },
   { key: 'top',      name: '顶级',   minScore: 15000 },
   { key: 'boss',     name: '人上人',  minScore: 8000 },
   { key: 'npc',      name: 'NPC',    minScore: 4000 },
@@ -63,13 +63,14 @@ export const TEST_PHASES: { phase: TestPhase; name: string; weight: number }[] =
 ];
 
 // GPU Benchmark 压力等级参数标准 (参考 3DMark / Unigine / 毒蘑菇 Volume Shader)
-// 迭代次数参考: 毒蘑菇 Light=200, Medium=600, Heavy=1002, Extreme=1500, Ultra=2500
+// 迭代次数参考: 毒蘑菇 Light=200, Medium=600, Heavy=1002, Extreme=1500, Ultra=2500, Insane=4000
 // 等级划分:
 //   P1-P5:    入门级 (200-400 iter, 1080p基础画质)
-//   P6-P12:   中端/主流级 (400-800 iter, 1080p-1440p中等画质)
-//   P13-P18:  高端级 (800-1400 iter, 1440p-4K高等画质)
-//   P19-P24:  旗舰级 (1400-2000 iter, 4K+极致画质)
-//   P25-P30:  顶尖级 (2000-2500 iter, 8K光追级画质)
+//   P6-P15:   中端/主流级 (400-1000 iter, 1080p-1440p中等画质)
+//   P16-P25:  高端级 (1000-2000 iter, 1440p-4K高等画质)
+//   P26-P35:  旗舰级 (2000-3000 iter, 4K+极致画质)
+//   P36-P42:  次顶尖级 (3000-3600 iter, 8K级画质)
+//   P43-P50:  顶尖级 (3600-4000 iter, 8K光追级+体积光)
 const PRESSURE_LEVELS: Record<number, {
   pixelScale: number;
   maxIterations: number;
@@ -97,26 +98,46 @@ const PRESSURE_LEVELS: Record<number, {
   13: { pixelScale: 1.8,  maxIterations: 940,  fbmOctaves: 8, shadowSteps: 32,  aoSteps: 16, volumeFogSteps: 26, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 1.5, stepScale: 1.15 },
   14: { pixelScale: 1.9,  maxIterations: 1002, fbmOctaves: 8, shadowSteps: 36,  aoSteps: 16, volumeFogSteps: 28, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 1.6, stepScale: 1.2 },
   15: { pixelScale: 2.0,  maxIterations: 1100, fbmOctaves: 8, shadowSteps: 40,  aoSteps: 16, volumeFogSteps: 30, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 1.7, stepScale: 1.2 },
-  16: { pixelScale: 2.1,  maxIterations: 1200, fbmOctaves: 8, shadowSteps: 44,  aoSteps: 16, volumeFogSteps: 32, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 1.8, stepScale: 1.2 },
-  17: { pixelScale: 2.2,  maxIterations: 1300, fbmOctaves: 8, shadowSteps: 48,  aoSteps: 16, volumeFogSteps: 34, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 1.9, stepScale: 1.2 },
-  18: { pixelScale: 2.3,  maxIterations: 1400, fbmOctaves: 8, shadowSteps: 52,  aoSteps: 16, volumeFogSteps: 36, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.0, stepScale: 1.2 },
-  19: { pixelScale: 2.5,  maxIterations: 1500, fbmOctaves: 8, shadowSteps: 56,  aoSteps: 16, volumeFogSteps: 38, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.0, stepScale: 1.2 },
-  20: { pixelScale: 2.7,  maxIterations: 1600, fbmOctaves: 8, shadowSteps: 60,  aoSteps: 16, volumeFogSteps: 40, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.0, stepScale: 1.15 },
-  21: { pixelScale: 2.9,  maxIterations: 1700, fbmOctaves: 8, shadowSteps: 64,  aoSteps: 16, volumeFogSteps: 44, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.0, stepScale: 1.15 },
-  22: { pixelScale: 3.1,  maxIterations: 1800, fbmOctaves: 8, shadowSteps: 68,  aoSteps: 16, volumeFogSteps: 48, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.1, stepScale: 1.1 },
-  23: { pixelScale: 3.3,  maxIterations: 1900, fbmOctaves: 8, shadowSteps: 72,  aoSteps: 16, volumeFogSteps: 52, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.1, stepScale: 1.1 },
-  24: { pixelScale: 3.5,  maxIterations: 2000, fbmOctaves: 8, shadowSteps: 76,  aoSteps: 16, volumeFogSteps: 56, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.1, stepScale: 1.05 },
-  25: { pixelScale: 3.6,  maxIterations: 2100, fbmOctaves: 8, shadowSteps: 80,  aoSteps: 16, volumeFogSteps: 60, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.2, stepScale: 1.05 },
-  26: { pixelScale: 3.7,  maxIterations: 2200, fbmOctaves: 8, shadowSteps: 84,  aoSteps: 16, volumeFogSteps: 64, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.2, stepScale: 1.0 },
-  27: { pixelScale: 3.8,  maxIterations: 2300, fbmOctaves: 8, shadowSteps: 88,  aoSteps: 16, volumeFogSteps: 68, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.2, stepScale: 1.0 },
-  28: { pixelScale: 3.9,  maxIterations: 2400, fbmOctaves: 8, shadowSteps: 92,  aoSteps: 16, volumeFogSteps: 72, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.3, stepScale: 0.95 },
-  29: { pixelScale: 4.0,  maxIterations: 2450, fbmOctaves: 8, shadowSteps: 96,  aoSteps: 16, volumeFogSteps: 76, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.3, stepScale: 0.95 },
-  30: { pixelScale: 4.0,  maxIterations: 2500, fbmOctaves: 8, shadowSteps: 100, aoSteps: 16, volumeFogSteps: 80, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.3, stepScale: 0.9 },
+  16: { pixelScale: 2.2,  maxIterations: 1200, fbmOctaves: 8, shadowSteps: 44,  aoSteps: 16, volumeFogSteps: 34, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 1.8, stepScale: 1.2 },
+  17: { pixelScale: 2.4,  maxIterations: 1300, fbmOctaves: 8, shadowSteps: 48,  aoSteps: 16, volumeFogSteps: 38, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 1.9, stepScale: 1.2 },
+  18: { pixelScale: 2.6,  maxIterations: 1400, fbmOctaves: 8, shadowSteps: 52,  aoSteps: 16, volumeFogSteps: 42, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.0, stepScale: 1.15 },
+  19: { pixelScale: 2.8,  maxIterations: 1500, fbmOctaves: 8, shadowSteps: 56,  aoSteps: 16, volumeFogSteps: 46, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.0, stepScale: 1.15 },
+  20: { pixelScale: 3.0,  maxIterations: 1600, fbmOctaves: 8, shadowSteps: 60,  aoSteps: 16, volumeFogSteps: 50, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.0, stepScale: 1.1 },
+  21: { pixelScale: 3.2,  maxIterations: 1700, fbmOctaves: 8, shadowSteps: 66,  aoSteps: 16, volumeFogSteps: 56, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.1, stepScale: 1.1 },
+  22: { pixelScale: 3.4,  maxIterations: 1800, fbmOctaves: 8, shadowSteps: 72,  aoSteps: 16, volumeFogSteps: 62, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.1, stepScale: 1.05 },
+  23: { pixelScale: 3.6,  maxIterations: 1900, fbmOctaves: 8, shadowSteps: 78,  aoSteps: 16, volumeFogSteps: 68, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.1, stepScale: 1.05 },
+  24: { pixelScale: 3.8,  maxIterations: 2000, fbmOctaves: 8, shadowSteps: 84,  aoSteps: 16, volumeFogSteps: 74, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.2, stepScale: 1.0 },
+  25: { pixelScale: 4.0,  maxIterations: 2100, fbmOctaves: 8, shadowSteps: 90,  aoSteps: 16, volumeFogSteps: 80, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.2, stepScale: 1.0 },
+  26: { pixelScale: 4.2,  maxIterations: 2200, fbmOctaves: 8, shadowSteps: 96,  aoSteps: 16, volumeFogSteps: 88, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.2, stepScale: 0.95 },
+  27: { pixelScale: 4.4,  maxIterations: 2300, fbmOctaves: 8, shadowSteps: 102, aoSteps: 16, volumeFogSteps: 96, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.3, stepScale: 0.95 },
+  28: { pixelScale: 4.6,  maxIterations: 2400, fbmOctaves: 8, shadowSteps: 108, aoSteps: 16, volumeFogSteps: 104, reflectionEnabled: true, lightCount: 4, bloomIntensity: 2.3, stepScale: 0.9 },
+  29: { pixelScale: 4.8,  maxIterations: 2500, fbmOctaves: 8, shadowSteps: 114, aoSteps: 16, volumeFogSteps: 112, reflectionEnabled: true, lightCount: 4, bloomIntensity: 2.3, stepScale: 0.9 },
+  30: { pixelScale: 5.0,  maxIterations: 2600, fbmOctaves: 8, shadowSteps: 120, aoSteps: 16, volumeFogSteps: 120, reflectionEnabled: true, lightCount: 4, bloomIntensity: 2.4, stepScale: 0.85 },
+  31: { pixelScale: 5.2,  maxIterations: 2700, fbmOctaves: 8, shadowSteps: 128, aoSteps: 16, volumeFogSteps: 130, reflectionEnabled: true, lightCount: 4, bloomIntensity: 2.4, stepScale: 0.85 },
+  32: { pixelScale: 5.4,  maxIterations: 2800, fbmOctaves: 8, shadowSteps: 136, aoSteps: 16, volumeFogSteps: 140, reflectionEnabled: true, lightCount: 4, bloomIntensity: 2.4, stepScale: 0.8 },
+  33: { pixelScale: 5.6,  maxIterations: 2900, fbmOctaves: 8, shadowSteps: 144, aoSteps: 16, volumeFogSteps: 150, reflectionEnabled: true, lightCount: 4, bloomIntensity: 2.5, stepScale: 0.8 },
+  34: { pixelScale: 5.8,  maxIterations: 3000, fbmOctaves: 8, shadowSteps: 152, aoSteps: 16, volumeFogSteps: 160, reflectionEnabled: true, lightCount: 4, bloomIntensity: 2.5, stepScale: 0.75 },
+  35: { pixelScale: 6.0,  maxIterations: 3100, fbmOctaves: 8, shadowSteps: 160, aoSteps: 16, volumeFogSteps: 170, reflectionEnabled: true, lightCount: 4, bloomIntensity: 2.5, stepScale: 0.75 },
+  36: { pixelScale: 6.2,  maxIterations: 3200, fbmOctaves: 8, shadowSteps: 168, aoSteps: 16, volumeFogSteps: 178, reflectionEnabled: true, lightCount: 4, bloomIntensity: 2.6, stepScale: 0.7 },
+  37: { pixelScale: 6.4,  maxIterations: 3300, fbmOctaves: 8, shadowSteps: 176, aoSteps: 16, volumeFogSteps: 186, reflectionEnabled: true, lightCount: 4, bloomIntensity: 2.6, stepScale: 0.7 },
+  38: { pixelScale: 6.6,  maxIterations: 3400, fbmOctaves: 8, shadowSteps: 184, aoSteps: 16, volumeFogSteps: 194, reflectionEnabled: true, lightCount: 4, bloomIntensity: 2.6, stepScale: 0.65 },
+  39: { pixelScale: 6.8,  maxIterations: 3500, fbmOctaves: 8, shadowSteps: 192, aoSteps: 16, volumeFogSteps: 200, reflectionEnabled: true, lightCount: 4, bloomIntensity: 2.7, stepScale: 0.65 },
+  40: { pixelScale: 7.0,  maxIterations: 3600, fbmOctaves: 8, shadowSteps: 200, aoSteps: 16, volumeFogSteps: 200, reflectionEnabled: true, lightCount: 4, bloomIntensity: 2.7, stepScale: 0.6 },
+  41: { pixelScale: 7.2,  maxIterations: 3700, fbmOctaves: 8, shadowSteps: 200, aoSteps: 16, volumeFogSteps: 200, reflectionEnabled: true, lightCount: 4, bloomIntensity: 2.8, stepScale: 0.6 },
+  42: { pixelScale: 7.4,  maxIterations: 3800, fbmOctaves: 8, shadowSteps: 200, aoSteps: 16, volumeFogSteps: 200, reflectionEnabled: true, lightCount: 4, bloomIntensity: 2.8, stepScale: 0.55 },
+  43: { pixelScale: 7.6,  maxIterations: 3850, fbmOctaves: 8, shadowSteps: 200, aoSteps: 16, volumeFogSteps: 200, reflectionEnabled: true, lightCount: 4, bloomIntensity: 2.8, stepScale: 0.55 },
+  44: { pixelScale: 7.8,  maxIterations: 3900, fbmOctaves: 8, shadowSteps: 200, aoSteps: 16, volumeFogSteps: 200, reflectionEnabled: true, lightCount: 4, bloomIntensity: 2.9, stepScale: 0.5 },
+  45: { pixelScale: 8.0,  maxIterations: 3950, fbmOctaves: 8, shadowSteps: 200, aoSteps: 16, volumeFogSteps: 200, reflectionEnabled: true, lightCount: 4, bloomIntensity: 2.9, stepScale: 0.5 },
+  46: { pixelScale: 8.2,  maxIterations: 4000, fbmOctaves: 8, shadowSteps: 200, aoSteps: 16, volumeFogSteps: 200, reflectionEnabled: true, lightCount: 4, bloomIntensity: 3.0, stepScale: 0.45 },
+  47: { pixelScale: 8.5,  maxIterations: 4000, fbmOctaves: 8, shadowSteps: 200, aoSteps: 16, volumeFogSteps: 200, reflectionEnabled: true, lightCount: 4, bloomIntensity: 3.0, stepScale: 0.45 },
+  48: { pixelScale: 8.8,  maxIterations: 4000, fbmOctaves: 8, shadowSteps: 200, aoSteps: 16, volumeFogSteps: 200, reflectionEnabled: true, lightCount: 4, bloomIntensity: 3.1, stepScale: 0.4 },
+  49: { pixelScale: 9.0,  maxIterations: 4000, fbmOctaves: 8, shadowSteps: 200, aoSteps: 16, volumeFogSteps: 200, reflectionEnabled: true, lightCount: 4, bloomIntensity: 3.1, stepScale: 0.4 },
+  50: { pixelScale: 9.5,  maxIterations: 4000, fbmOctaves: 8, shadowSteps: 200, aoSteps: 16, volumeFogSteps: 200, reflectionEnabled: true, lightCount: 4, bloomIntensity: 3.2, stepScale: 0.35 },
 };
 
 function getPressureLevelParams(level: number) {
   if (level <= 1) return PRESSURE_LEVELS[1];
-  if (level >= 30) return PRESSURE_LEVELS[30];
+  if (level >= 50) return PRESSURE_LEVELS[50];
   return PRESSURE_LEVELS[level];
 }
 

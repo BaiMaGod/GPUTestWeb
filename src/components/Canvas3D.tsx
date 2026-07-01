@@ -29,7 +29,7 @@ const fragmentShader = `
   uniform bool uReflectionEnabled;
   varying vec2 vUv;
 
-  #define MAX_STEPS 2500
+  #define MAX_STEPS 4000
   #define MAX_DIST 150.0
   #define SURF_DIST 0.0008
   #define PI 3.14159265359
@@ -101,8 +101,8 @@ const fragmentShader = `
     vec3 z = pos;
     float dr = 1.0;
     float r = 0.0;
-    float power = 10.0;
-    for (int i = 0; i < 2500; i++) {
+    float power = 12.0;
+    for (int i = 0; i < 4000; i++) {
       if (i >= iterations) break;
       r = length(z);
       if (r > 2.5) break;
@@ -124,7 +124,7 @@ const fragmentShader = `
     float scale = 2.0;
     float minRadius = 0.5;
     float fixedRadius = 1.0;
-    for (int i = 0; i < 2500; i++) {
+    for (int i = 0; i < 4000; i++) {
       if (i >= iterations) break;
       z = clamp(z, -1.0, 1.0) * 2.0 - z;
       float r2 = dot(z, z);
@@ -273,7 +273,7 @@ const fragmentShader = `
   float softShadow(vec3 ro, vec3 rd, float mint, float maxt, float k) {
     float res = 1.0;
     float t = mint;
-    for (int i = 0; i < 100; i++) {
+    for (int i = 0; i < 200; i++) {
       if (i >= uShadowSteps) break;
       if (t >= maxt) break;
       float h = getDist(ro + rd * t);
@@ -373,7 +373,7 @@ const fragmentShader = `
     float fogAmount = 0.0;
     vec3 fogCol = vec3(0.1, 0.08, 0.2);
     float stepSize = dist / 16.0;
-    for (int i = 0; i < 80; i++) {
+    for (int i = 0; i < 200; i++) {
       if (i >= uVolumeFogSteps) break;
       float fi = float(i);
       float d = stepSize * fi;
