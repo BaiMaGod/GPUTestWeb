@@ -477,6 +477,19 @@ function ShaderScene({ phase, dynamicPressure }: { phase: TestPhase; dynamicPres
   const meshRef = useRef<THREE.Mesh>(null);
   const { size } = useThree();
   const params = computeShaderParams(dynamicPressure, phase);
+  const uniformsRef = useRef<Record<string, THREE.IUniform>>({
+    uTime: { value: 0 },
+    uResolution: { value: new THREE.Vector2() },
+    uMaxIterations: { value: 32 },
+    uStepScale: { value: 0.6 },
+    uLightCount: { value: 1 },
+    uPhase: { value: 0 },
+    uFbmOctaves: { value: 2 },
+    uShadowSteps: { value: 4 },
+    uAoSteps: { value: 2 },
+    uVolumeFogSteps: { value: 2 },
+    uReflectionEnabled: { value: false },
+  });
 
   useFrame((state) => {
     if (meshRef.current) {
@@ -501,19 +514,7 @@ function ShaderScene({ phase, dynamicPressure }: { phase: TestPhase; dynamicPres
       <shaderMaterial
         vertexShader={vertexShader}
         fragmentShader={fragmentShader}
-        uniforms={{
-          uTime: { value: 0 },
-          uResolution: { value: new THREE.Vector2(size.width, size.height) },
-          uMaxIterations: { value: params.maxIterations },
-          uStepScale: { value: params.stepScale },
-          uLightCount: { value: params.lightCount },
-          uPhase: { value: phase === 'idle' ? 0 : ['raymarch', 'fractal', 'lighting', 'compute'].indexOf(phase) },
-          uFbmOctaves: { value: params.fbmOctaves },
-          uShadowSteps: { value: params.shadowSteps },
-          uAoSteps: { value: params.aoSteps },
-          uVolumeFogSteps: { value: params.volumeFogSteps },
-          uReflectionEnabled: { value: params.reflectionEnabled },
-        }}
+        uniforms={uniformsRef.current}
       />
     </mesh>
   );

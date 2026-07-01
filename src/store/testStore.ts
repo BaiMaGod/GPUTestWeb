@@ -360,6 +360,7 @@ export const useTestStore = create<TestState>((set, get) => ({
 
   recordPhaseFPS: (fps) => {
     const { currentTestPhase, dynamicPressure, phaseRecords } = get();
+    if (currentTestPhase === 'idle') return;
     const existing = phaseRecords.find(r => r.phase === currentTestPhase);
     if (existing) {
       existing.fpsHistory.push(fps);

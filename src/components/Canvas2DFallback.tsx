@@ -6,6 +6,12 @@ function ParticleCanvas2D({ intensity }: { intensity: number }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const particlesRef = useRef<{ x: number; y: number; z: number; vx: number; vy: number; vz: number; color: string }[]>([]);
   const animationRef = useRef<number | null>(null);
+  const frameCountRef = useRef(0);
+  const lastFPSTimeRef = useRef(performance.now());
+  const status = useTestStore((s) => s.status);
+  const setCurrentFPS = useTestStore((s) => s.setCurrentFPS);
+  const addFPSRecord = useTestStore((s) => s.addFPSRecord);
+  const recordPhaseFPS = useTestStore((s) => s.recordPhaseFPS);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -73,6 +79,20 @@ function ParticleCanvas2D({ intensity }: { intensity: number }) {
         ctx.globalAlpha = 1;
       });
 
+      frameCountRef.current++;
+      const now = performance.now();
+      const elapsed = now - lastFPSTimeRef.current;
+      if (elapsed >= 250) {
+        const fps = Math.round((frameCountRef.current * 1000) / elapsed);
+        if (status === 'running') {
+          setCurrentFPS(fps);
+          addFPSRecord(fps);
+          recordPhaseFPS(fps);
+        }
+        frameCountRef.current = 0;
+        lastFPSTimeRef.current = now;
+      }
+
       animationRef.current = requestAnimationFrame(animate);
     };
 
@@ -84,7 +104,7 @@ function ParticleCanvas2D({ intensity }: { intensity: number }) {
         cancelAnimationFrame(animationRef.current);
       }
     };
-  }, [intensity]);
+  }, [intensity, status, setCurrentFPS, addFPSRecord, recordPhaseFPS]);
 
   return <canvas ref={canvasRef} className="w-full h-full" />;
 }

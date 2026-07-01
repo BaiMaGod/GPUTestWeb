@@ -65,17 +65,19 @@ export function HeroSection() {
   };
 
   const finishTest = () => {
-    const results = phaseRecords.map((record, idx) => {
-      const config = TEST_PHASES[idx];
-      const avgFPS = record.fpsHistory.length > 0
-        ? Math.round(record.fpsHistory.reduce((a, b) => a + b, 0) / record.fpsHistory.length)
+    const state = useTestStore.getState();
+    const results = TEST_PHASES.map((config) => {
+      const record = state.phaseRecords.find(r => r.phase === config.phase);
+      const avgFPS = record && record.fpsHistory.length > 0
+        ? Math.round(record.fpsHistory.reduce((a: number, b: number) => a + b, 0) / record.fpsHistory.length)
         : TARGET_FPS;
-      const params = computeShaderParams(record.maxPressureLevel, record.phase);
-      const score = Math.round(avgFPS * record.maxPressureLevel * config.weight * 50);
+      const maxPressure = record ? record.maxPressureLevel : 1;
+      const params = computeShaderParams(maxPressure, config.phase);
+      const score = Math.round(avgFPS * maxPressure * config.weight * 50);
       return {
         name: config.name,
         fps: avgFPS,
-        maxPressureLevel: record.maxPressureLevel,
+        maxPressureLevel: maxPressure,
         score,
       };
     });
@@ -86,15 +88,15 @@ export function HeroSection() {
     else if (overallScore >= 20000) ratingVal = 'mainstream';
     else ratingVal = 'entry';
 
-    const finalPressure = phaseRecords.length > 0
-      ? Math.max(...phaseRecords.map(r => r.maxPressureLevel))
+    const finalPressure = state.phaseRecords.length > 0
+      ? Math.max(...state.phaseRecords.map(r => r.maxPressureLevel))
       : 1;
 
     setTestResult({
       overallScore,
       rating: ratingVal,
       subTests: results,
-      gpuInfo,
+      gpuInfo: state.gpuInfo,
       finalDynamicPressure: finalPressure,
     });
   };
