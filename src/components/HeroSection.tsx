@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Play, Loader2, Cpu, Gauge, Zap, Activity } from 'lucide-react';
 import { SafeCanvas3D } from './SafeCanvas3D';
+import { Canvas2DFallback } from './Canvas2DFallback';
 import { useTestStore, TEST_PHASES, computeShaderParams } from '@/store/testStore';
 import type { PerformanceRating } from '@/store/testStore';
 
@@ -211,7 +212,11 @@ export function HeroSection() {
 
   return (
     <section className="relative min-h-screen flex flex-col items-center justify-center overflow-hidden">
-      <SafeCanvas3D />
+      {status === 'running' ? (
+        <SafeCanvas3D />
+      ) : (
+        <Canvas2DFallback />
+      )}
 
       <div className="relative z-10 container mx-auto px-6 py-32 flex flex-col items-center">
         <motion.div
