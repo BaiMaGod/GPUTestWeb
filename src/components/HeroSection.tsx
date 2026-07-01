@@ -6,9 +6,11 @@ import { useTestStore, TEST_PHASES, computeShaderParams } from '@/store/testStor
 import type { PerformanceRating } from '@/store/testStore';
 
 const TARGET_FPS = 30;
+const MIN_FPS_FOR_PRESSURE = 35;
 const STABILIZE_TIME = 2500;
 const PRESSURE_INCREASE_INTERVAL = 1200;
 const WARMUP_TIME = 1500;
+const MAX_PRESSURE_LEVEL = 20;
 
 export function HeroSection() {
   const {
@@ -72,8 +74,8 @@ export function HeroSection() {
         ? Math.round(record.fpsHistory.reduce((a: number, b: number) => a + b, 0) / record.fpsHistory.length)
         : TARGET_FPS;
       const maxPressure = record ? record.maxPressureLevel : 1;
-      const params = computeShaderParams(maxPressure, config.phase);
-      const score = Math.round(avgFPS * maxPressure * config.weight * 50);
+      const pressureFactor = Math.sqrt(maxPressure);
+      const score = Math.round(avgFPS * pressureFactor * config.weight * 80);
       return {
         name: config.name,
         fps: avgFPS,
@@ -84,8 +86,8 @@ export function HeroSection() {
 
     const overallScore = results.reduce((sum, r) => sum + r.score, 0);
     let ratingVal: PerformanceRating;
-    if (overallScore >= 50000) ratingVal = 'flagship';
-    else if (overallScore >= 20000) ratingVal = 'mainstream';
+    if (overallScore >= 12000) ratingVal = 'flagship';
+    else if (overallScore >= 6000) ratingVal = 'mainstream';
     else ratingVal = 'entry';
 
     const finalPressure = state.phaseRecords.length > 0
@@ -140,7 +142,7 @@ export function HeroSection() {
     }
 
     if (!isStabilizedRef.current) {
-      if (currentFPSVal >= TARGET_FPS) {
+      if (currentFPSVal >= MIN_FPS_FOR_PRESSURE && currentDynPressure < MAX_PRESSURE_LEVEL) {
         stabilizeStartRef.current = currentTime;
         if (currentTime - lastPressureIncreaseRef.current >= PRESSURE_INCREASE_INTERVAL) {
           lastPressureIncreaseRef.current = currentTime;
