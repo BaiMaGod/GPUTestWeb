@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { Play, Loader2, Cpu, Gauge, Zap, Activity } from 'lucide-react';
 import { SafeCanvas3D } from './SafeCanvas3D';
 import { Canvas2DFallback } from './Canvas2DFallback';
-import { useTestStore, TEST_PHASES, computeShaderParams } from '@/store/testStore';
+import { useTestStore, TEST_PHASES, computeShaderParams, getRatingByScore, getRatingName, FORMAL_RATINGS, FUN_RATINGS } from '@/store/testStore';
 import type { PerformanceRating } from '@/store/testStore';
 
 const TARGET_FPS = 30;
@@ -24,6 +24,7 @@ export function HeroSection() {
     finalScore,
     rating,
     gpuInfo,
+    testResult,
     setStatus,
     setCurrentTestPhase,
     incrementDynamicPressure,
@@ -50,10 +51,16 @@ export function HeroSection() {
 
   const getRatingInfo = (r: PerformanceRating) => {
     switch (r) {
+      case 'top':
+        return { text: '顶尖级', color: 'text-tech-blue', bg: 'bg-tech-blue/20', border: 'border-tech-blue' };
       case 'flagship':
         return { text: '旗舰级', color: 'text-perf-green', bg: 'bg-perf-green/20', border: 'border-perf-green' };
+      case 'high':
+        return { text: '高端级', color: 'text-electric-purple', bg: 'bg-electric-purple/20', border: 'border-electric-purple' };
       case 'mainstream':
         return { text: '主流级', color: 'text-perf-amber', bg: 'bg-perf-amber/20', border: 'border-perf-amber' };
+      case 'mid':
+        return { text: '中端级', color: 'text-orange-400', bg: 'bg-orange-400/20', border: 'border-orange-400' };
       case 'entry':
         return { text: '入门级', color: 'text-perf-red', bg: 'bg-perf-red/20', border: 'border-perf-red' };
       default:
@@ -87,10 +94,7 @@ export function HeroSection() {
     });
 
     const overallScore = results.reduce((sum, r) => sum + r.score, 0);
-    let ratingVal: PerformanceRating;
-    if (overallScore >= 14000) ratingVal = 'flagship';
-    else if (overallScore >= 6000) ratingVal = 'mainstream';
-    else ratingVal = 'entry';
+    const ratingVal = getRatingByScore(overallScore) as PerformanceRating;
 
     const finalPressure = state.phaseRecords.length > 0
       ? Math.max(...state.phaseRecords.map(r => r.maxPressureLevel))
@@ -309,9 +313,14 @@ export function HeroSection() {
             <motion.div
               initial={{ opacity: 0, scale: 0.8 }}
               animate={{ opacity: 1, scale: 1 }}
-              className={`inline-block px-4 py-2 rounded-full ${ratingInfo.bg} border ${ratingInfo.border} ${ratingInfo.color} font-semibold mb-4`}
+              className="text-center mb-4"
             >
-              {ratingInfo.text}
+              <div className={`inline-block px-6 py-2 rounded-full ${ratingInfo.bg} border ${ratingInfo.border} ${ratingInfo.color} font-bold text-xl`}>
+                {ratingInfo.text}
+              </div>
+              <div className="mt-3 text-text-secondary text-sm">
+                趣味评级：<span className="text-electric-purple font-semibold">{getRatingName(getRatingByScore(testResult?.overallScore || 0, false), false)}</span>
+              </div>
             </motion.div>
           )}
 

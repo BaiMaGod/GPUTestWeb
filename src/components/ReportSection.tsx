@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Trophy, Download, RotateCcw, Award, Zap, Shield, Sparkles } from 'lucide-react';
-import { useTestStore, type PerformanceRating } from '@/store/testStore';
+import { Trophy, Download, RotateCcw, Crown, Zap, Shield, Sparkles, Gauge, Cpu, Award } from 'lucide-react';
+import { useTestStore, type PerformanceRating, getRatingByScore, getRatingName } from '@/store/testStore';
 
 export function ReportSection() {
   const { status, testResult, finalScore, rating, reset } = useTestStore();
@@ -32,6 +32,15 @@ export function ReportSection() {
 
   const getRatingDetails = (rating: PerformanceRating) => {
     switch (rating) {
+      case 'top':
+        return {
+          text: '顶尖级',
+          icon: Crown,
+          color: 'text-tech-blue',
+          bg: 'bg-tech-blue/20',
+          border: 'border-tech-blue',
+          description: '您的 GPU 是当前最强性能梯队，8K 光追也能轻松拿捏',
+        };
       case 'flagship':
         return {
           text: '旗舰级',
@@ -41,19 +50,37 @@ export function ReportSection() {
           border: 'border-perf-green',
           description: '您的 GPU 性能处于行业领先水平，可以轻松应对 4K 高画质游戏',
         };
+      case 'high':
+        return {
+          text: '高端级',
+          icon: Award,
+          color: 'text-electric-purple',
+          bg: 'bg-electric-purple/20',
+          border: 'border-electric-purple',
+          description: '您的 GPU 性能强劲，2K 高画质 + 光追流畅运行无压力',
+        };
       case 'mainstream':
         return {
           text: '主流级',
-          icon: Award,
+          icon: Gauge,
           color: 'text-perf-amber',
           bg: 'bg-perf-amber/20',
           border: 'border-perf-amber',
           description: '您的 GPU 可以流畅运行主流游戏，建议适当降低画质设置',
         };
+      case 'mid':
+        return {
+          text: '中端级',
+          icon: Zap,
+          color: 'text-orange-400',
+          bg: 'bg-orange-400/20',
+          border: 'border-orange-400',
+          description: '您的 GPU 性能中规中矩，1080p 中低画质可以流畅运行',
+        };
       case 'entry':
         return {
           text: '入门级',
-          icon: Zap,
+          icon: Cpu,
           color: 'text-perf-red',
           bg: 'bg-perf-red/20',
           border: 'border-perf-red',
@@ -132,9 +159,12 @@ export function ReportSection() {
           </div>
           <div className="text-text-secondary text-lg mb-6">综合评分</div>
 
-          <p className="text-text-secondary max-w-lg mx-auto flex items-center justify-center gap-2">
+          <p className="text-text-secondary max-w-lg mx-auto flex items-center justify-center gap-2 mb-3">
             <Shield className="w-5 h-5 text-tech-blue" />
             {ratingDetails.description}
+          </p>
+          <p className="text-text-secondary/60 text-sm">
+            趣味评级：<span className="text-electric-purple font-semibold">{getRatingName(getRatingByScore(testResult?.overallScore || 0, false), false)}</span>
           </p>
         </motion.div>
 

@@ -1,7 +1,40 @@
 import { create } from 'zustand';
 
 export type TestStatus = 'idle' | 'running' | 'completed';
-export type PerformanceRating = 'flagship' | 'mainstream' | 'entry' | null;
+export type PerformanceRating = 'top' | 'flagship' | 'high' | 'mainstream' | 'mid' | 'entry' | null;
+
+export const FORMAL_RATINGS: { key: PerformanceRating; name: string; minScore: number }[] = [
+  { key: 'top',       name: '顶尖级', minScore: 20000 },
+  { key: 'flagship',  name: '旗舰级', minScore: 14000 },
+  { key: 'high',      name: '高端级', minScore: 9000 },
+  { key: 'mainstream', name: '主流级', minScore: 5000 },
+  { key: 'mid',       name: '中端级', minScore: 2000 },
+  { key: 'entry',     name: '入门级', minScore: 0 },
+];
+
+export const FUN_RATINGS: { key: string; name: string; minScore: number }[] = [
+  { key: 'hardcore', name: '夯爆了', minScore: 23000 },
+  { key: 'solid',    name: '夯',     minScore: 17000 },
+  { key: 'top',      name: '顶级',   minScore: 12000 },
+  { key: 'boss',     name: '人上人',  minScore: 7000 },
+  { key: 'npc',      name: 'NPC',    minScore: 3500 },
+  { key: 'ok',       name: '拉',     minScore: 1500 },
+  { key: 'done',     name: '拉完了',  minScore: 0 },
+];
+
+export function getRatingByScore(score: number, formal: boolean = true): PerformanceRating | string {
+  const ratings = formal ? FORMAL_RATINGS : FUN_RATINGS;
+  for (const r of ratings) {
+    if (score >= r.minScore) return r.key;
+  }
+  return formal ? 'entry' : 'done';
+}
+
+export function getRatingName(key: PerformanceRating | string, formal: boolean = true): string {
+  const ratings = formal ? FORMAL_RATINGS : FUN_RATINGS;
+  const found = ratings.find(r => r.key === key);
+  return found?.name || '待测试';
+}
 export type TestPhase = 'idle' | 'raymarch' | 'fractal' | 'lighting' | 'compute';
 
 // 目标帧率阈值 - 当 FPS 低于此值时停止加压
