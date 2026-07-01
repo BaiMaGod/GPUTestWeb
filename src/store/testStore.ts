@@ -4,20 +4,20 @@ export type TestStatus = 'idle' | 'running' | 'completed';
 export type PerformanceRating = 'top' | 'flagship' | 'high' | 'mainstream' | 'mid' | 'entry' | null;
 
 export const FORMAL_RATINGS: { key: PerformanceRating; name: string; minScore: number }[] = [
-  { key: 'top',       name: '顶尖级', minScore: 20000 },
-  { key: 'flagship',  name: '旗舰级', minScore: 14000 },
-  { key: 'high',      name: '高端级', minScore: 9000 },
+  { key: 'top',       name: '顶尖级', minScore: 28000 },
+  { key: 'flagship',  name: '旗舰级', minScore: 18000 },
+  { key: 'high',      name: '高端级', minScore: 10000 },
   { key: 'mainstream', name: '主流级', minScore: 5000 },
   { key: 'mid',       name: '中端级', minScore: 2000 },
   { key: 'entry',     name: '入门级', minScore: 0 },
 ];
 
 export const FUN_RATINGS: { key: string; name: string; minScore: number }[] = [
-  { key: 'hardcore', name: '夯爆了', minScore: 23000 },
-  { key: 'solid',    name: '夯',     minScore: 17000 },
-  { key: 'top',      name: '顶级',   minScore: 12000 },
-  { key: 'boss',     name: '人上人',  minScore: 7000 },
-  { key: 'npc',      name: 'NPC',    minScore: 3500 },
+  { key: 'hardcore', name: '夯爆了', minScore: 33000 },
+  { key: 'solid',    name: '夯',     minScore: 23000 },
+  { key: 'top',      name: '顶级',   minScore: 15000 },
+  { key: 'boss',     name: '人上人',  minScore: 8000 },
+  { key: 'npc',      name: 'NPC',    minScore: 4000 },
   { key: 'ok',       name: '拉',     minScore: 1500 },
   { key: 'done',     name: '拉完了',  minScore: 0 },
 ];
@@ -63,12 +63,13 @@ export const TEST_PHASES: { phase: TestPhase; name: string; weight: number }[] =
 ];
 
 // GPU Benchmark 压力等级参数标准 (参考 3DMark / Unigine / 毒蘑菇 Volume Shader)
-// 迭代次数参考: 毒蘑菇 Light=200, Medium=600, Heavy=1002, Extreme=1500
+// 迭代次数参考: 毒蘑菇 Light=200, Medium=600, Heavy=1002, Extreme=1500, Ultra=2500
 // 等级划分:
-//   P1-P5:   入门级 (200-400 iter, 1080p基础画质)
-//   P6-P10:  主流级 (400-700 iter, 1080p-1440p中等画质)
-//   P11-P15: 高端级 (700-1000 iter, 1440p-4K高等画质)
-//   P16-P20: 旗舰级 (1000-1500 iter, 4K+极致画质)
+//   P1-P5:    入门级 (200-400 iter, 1080p基础画质)
+//   P6-P12:   中端/主流级 (400-800 iter, 1080p-1440p中等画质)
+//   P13-P18:  高端级 (800-1400 iter, 1440p-4K高等画质)
+//   P19-P24:  旗舰级 (1400-2000 iter, 4K+极致画质)
+//   P25-P30:  顶尖级 (2000-2500 iter, 8K光追级画质)
 const PRESSURE_LEVELS: Record<number, {
   pixelScale: number;
   maxIterations: number;
@@ -99,13 +100,23 @@ const PRESSURE_LEVELS: Record<number, {
   16: { pixelScale: 2.1,  maxIterations: 1200, fbmOctaves: 8, shadowSteps: 44,  aoSteps: 16, volumeFogSteps: 32, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 1.8, stepScale: 1.2 },
   17: { pixelScale: 2.2,  maxIterations: 1300, fbmOctaves: 8, shadowSteps: 48,  aoSteps: 16, volumeFogSteps: 34, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 1.9, stepScale: 1.2 },
   18: { pixelScale: 2.3,  maxIterations: 1400, fbmOctaves: 8, shadowSteps: 52,  aoSteps: 16, volumeFogSteps: 36, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.0, stepScale: 1.2 },
-  19: { pixelScale: 2.4,  maxIterations: 1450, fbmOctaves: 8, shadowSteps: 56,  aoSteps: 16, volumeFogSteps: 38, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.0, stepScale: 1.2 },
-  20: { pixelScale: 2.5,  maxIterations: 1500, fbmOctaves: 8, shadowSteps: 60,  aoSteps: 16, volumeFogSteps: 40, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.0, stepScale: 1.2 },
+  19: { pixelScale: 2.5,  maxIterations: 1500, fbmOctaves: 8, shadowSteps: 56,  aoSteps: 16, volumeFogSteps: 38, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.0, stepScale: 1.2 },
+  20: { pixelScale: 2.7,  maxIterations: 1600, fbmOctaves: 8, shadowSteps: 60,  aoSteps: 16, volumeFogSteps: 40, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.0, stepScale: 1.15 },
+  21: { pixelScale: 2.9,  maxIterations: 1700, fbmOctaves: 8, shadowSteps: 64,  aoSteps: 16, volumeFogSteps: 44, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.0, stepScale: 1.15 },
+  22: { pixelScale: 3.1,  maxIterations: 1800, fbmOctaves: 8, shadowSteps: 68,  aoSteps: 16, volumeFogSteps: 48, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.1, stepScale: 1.1 },
+  23: { pixelScale: 3.3,  maxIterations: 1900, fbmOctaves: 8, shadowSteps: 72,  aoSteps: 16, volumeFogSteps: 52, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.1, stepScale: 1.1 },
+  24: { pixelScale: 3.5,  maxIterations: 2000, fbmOctaves: 8, shadowSteps: 76,  aoSteps: 16, volumeFogSteps: 56, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.1, stepScale: 1.05 },
+  25: { pixelScale: 3.6,  maxIterations: 2100, fbmOctaves: 8, shadowSteps: 80,  aoSteps: 16, volumeFogSteps: 60, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.2, stepScale: 1.05 },
+  26: { pixelScale: 3.7,  maxIterations: 2200, fbmOctaves: 8, shadowSteps: 84,  aoSteps: 16, volumeFogSteps: 64, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.2, stepScale: 1.0 },
+  27: { pixelScale: 3.8,  maxIterations: 2300, fbmOctaves: 8, shadowSteps: 88,  aoSteps: 16, volumeFogSteps: 68, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.2, stepScale: 1.0 },
+  28: { pixelScale: 3.9,  maxIterations: 2400, fbmOctaves: 8, shadowSteps: 92,  aoSteps: 16, volumeFogSteps: 72, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.3, stepScale: 0.95 },
+  29: { pixelScale: 4.0,  maxIterations: 2450, fbmOctaves: 8, shadowSteps: 96,  aoSteps: 16, volumeFogSteps: 76, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.3, stepScale: 0.95 },
+  30: { pixelScale: 4.0,  maxIterations: 2500, fbmOctaves: 8, shadowSteps: 100, aoSteps: 16, volumeFogSteps: 80, reflectionEnabled: true,  lightCount: 4, bloomIntensity: 2.3, stepScale: 0.9 },
 };
 
 function getPressureLevelParams(level: number) {
   if (level <= 1) return PRESSURE_LEVELS[1];
-  if (level >= 20) return PRESSURE_LEVELS[20];
+  if (level >= 30) return PRESSURE_LEVELS[30];
   return PRESSURE_LEVELS[level];
 }
 

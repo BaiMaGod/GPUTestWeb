@@ -11,7 +11,7 @@ const MIN_FPS_FOR_PRESSURE = 35;
 const STABILIZE_TIME = 2500;
 const PRESSURE_INCREASE_INTERVAL = 1200;
 const WARMUP_TIME = 1500;
-const MAX_PRESSURE_LEVEL = 20;
+const MAX_PRESSURE_LEVEL = 30;
 
 export function HeroSection() {
   const {
