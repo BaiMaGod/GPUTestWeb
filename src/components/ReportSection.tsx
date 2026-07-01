@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Trophy, Download, RotateCcw, Crown, Zap, Shield, Sparkles, Gauge, Cpu, Award } from 'lucide-react';
-import { useTestStore, type PerformanceRating, getRatingByScore, getRatingName } from '@/store/testStore';
+import { Trophy, Download, RotateCcw, Crown, Zap, Shield, Sparkles, Gauge, Cpu, Award, Check } from 'lucide-react';
+import { useTestStore, type PerformanceRating, getRatingByScore, getRatingName, FORMAL_RATINGS, FUN_RATINGS } from '@/store/testStore';
 
 export function ReportSection() {
   const { status, testResult, finalScore, rating, reset } = useTestStore();
@@ -163,9 +163,83 @@ export function ReportSection() {
             <Shield className="w-5 h-5 text-tech-blue" />
             {ratingDetails.description}
           </p>
-          <p className="text-text-secondary/60 text-sm">
+          <div className="text-text-secondary/60 text-sm mb-8">
             趣味评级：<span className="text-electric-purple font-semibold">{getRatingName(getRatingByScore(testResult?.overallScore || 0, false), false)}</span>
-          </p>
+          </div>
+
+          {/* 等级阶梯展示 */}
+          <div className="max-w-2xl mx-auto mb-8">
+            <div className="grid grid-cols-2 gap-8">
+              {/* 正式评级阶梯 */}
+              <div>
+                <h4 className="text-sm font-medium text-text-secondary mb-3 text-center">正式评级</h4>
+                <div className="space-y-2">
+                  {FORMAL_RATINGS.map((r, index) => {
+                    const isCurrent = rating === r.key;
+                    const ratingInfo = getRatingDetails(r.key);
+                    const IconComp = ratingInfo.icon;
+                    return (
+                      <motion.div
+                        key={r.key}
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: 0.3 + index * 0.05 }}
+                        className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all ${
+                          isCurrent 
+                            ? `${ratingInfo.bg} border ${ratingInfo.border} ${ratingInfo.color} font-semibold` 
+                            : 'bg-space-gray/30 text-text-secondary/60'
+                        }`}
+                      >
+                        {isCurrent && <Check className="w-4 h-4" />}
+                        <IconComp className={`w-4 h-4 ${isCurrent ? ratingInfo.color : 'text-text-secondary/40'}`} />
+                        <span className="text-sm">{r.name}</span>
+                        <span className="text-xs ml-auto font-mono">{r.minScore === 0 ? '0+' : `${r.minScore.toLocaleString()}+`}</span>
+                      </motion.div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 趣味评级阶梯 */}
+              <div>
+                <h4 className="text-sm font-medium text-text-secondary mb-3 text-center">趣味评级</h4>
+                <div className="space-y-2">
+                  {FUN_RATINGS.map((r, index) => {
+                    const currentFunRating = getRatingByScore(testResult?.overallScore || 0, false);
+                    const isCurrent = currentFunRating === r.key;
+                    const funColors: Record<string, { bg: string; border: string; color: string }> = {
+                      'hardcore': { bg: 'bg-tech-blue/20', border: 'border-tech-blue', color: 'text-tech-blue' },
+                      'solid': { bg: 'bg-perf-green/20', border: 'border-perf-green', color: 'text-perf-green' },
+                      'top': { bg: 'bg-electric-purple/20', border: 'border-electric-purple', color: 'text-electric-purple' },
+                      'boss': { bg: 'bg-perf-amber/20', border: 'border-perf-amber', color: 'text-perf-amber' },
+                      'npc': { bg: 'bg-orange-400/20', border: 'border-orange-400', color: 'text-orange-400' },
+                      'ok': { bg: 'bg-perf-red/20', border: 'border-perf-red', color: 'text-perf-red' },
+                      'done': { bg: 'bg-red-800/20', border: 'border-red-800', color: 'text-red-400' },
+                    };
+                    const colorInfo = funColors[r.key] || { bg: 'bg-space-gray/30', border: 'border-space-gray', color: 'text-text-secondary' };
+                    return (
+                      <motion.div
+                        key={r.key}
+                        initial={{ opacity: 0, x: 20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: 0.3 + index * 0.05 }}
+                        className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all ${
+                          isCurrent 
+                            ? `${colorInfo.bg} border ${colorInfo.border} ${colorInfo.color} font-semibold` 
+                            : 'bg-space-gray/30 text-text-secondary/60'
+                        }`}
+                      >
+                        {isCurrent && <Check className="w-4 h-4" />}
+                        <Sparkles className={`w-4 h-4 ${isCurrent ? colorInfo.color : 'text-text-secondary/40'}`} />
+                        <span className="text-sm">{r.name}</span>
+                        <span className="text-xs ml-auto font-mono">{r.minScore === 0 ? '0+' : `${r.minScore.toLocaleString()}+`}</span>
+                      </motion.div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
         </motion.div>
 
         <motion.div
