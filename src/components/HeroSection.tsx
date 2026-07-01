@@ -69,14 +69,15 @@ export function HeroSection() {
 
   const finishTest = () => {
     const state = useTestStore.getState();
+    const SCORE_BASE = 4;
+
     const results = TEST_PHASES.map((config) => {
       const record = state.phaseRecords.find(r => r.phase === config.phase);
       const avgFPS = record && record.fpsHistory.length > 0
         ? Math.round(record.fpsHistory.reduce((a: number, b: number) => a + b, 0) / record.fpsHistory.length)
-        : TARGET_FPS;
+        : 0;
       const maxPressure = record ? record.maxPressureLevel : 1;
-      const pressureFactor = Math.sqrt(maxPressure);
-      const score = Math.round(avgFPS * pressureFactor * config.weight * 80);
+      const score = Math.round(maxPressure * avgFPS * config.weight * SCORE_BASE);
       return {
         name: config.name,
         fps: avgFPS,
@@ -87,7 +88,7 @@ export function HeroSection() {
 
     const overallScore = results.reduce((sum, r) => sum + r.score, 0);
     let ratingVal: PerformanceRating;
-    if (overallScore >= 12000) ratingVal = 'flagship';
+    if (overallScore >= 14000) ratingVal = 'flagship';
     else if (overallScore >= 6000) ratingVal = 'mainstream';
     else ratingVal = 'entry';
 
